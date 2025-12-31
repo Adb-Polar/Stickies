@@ -38,3 +38,6 @@ next-env.d.ts
 
 # prisma
 /prisma/migrations
+
+# personal files
+personal checklist do not add.md

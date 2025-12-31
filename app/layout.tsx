@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Just_Another_Hand } from "next/font/google";
+import { Just_Another_Hand } from "next/font/google";
 import "./globals.css";
 
 const justAnotherHand = Just_Another_Hand({

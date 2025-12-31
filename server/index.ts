@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
+import { connectDatabase, disconnectDatabase } from './config/database';
+import { connectRedis, disconnectRedis } from './config/redis';
 
 dotenv.config();
 
@@ -11,8 +13,9 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 
@@ -20,7 +23,12 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(helmet());
-app.use(cors());
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    credentials: true,
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -68,9 +76,36 @@ io.on('connection', (socket) => {
   });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+async function startServer(): Promise<void> {
+  try {
+    await connectDatabase();
+    await connectRedis();
+    httpServer.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
 
-export { app, io };
+async function shutdownServer(): Promise<void> {
+  console.log('Shutting down server...');
+  httpServer.close(async () => {
+    await disconnectDatabase();
+    await disconnectRedis();
+    io.close(() => {
+      console.log('Server shut down complete');
+      process.exit(0);
+    });
+  });
+}
+
+if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID) {
+  process.on('SIGINT', shutdownServer);
+  process.on('SIGTERM', shutdownServer);
+  startServer();
+}
+
+export { app, io, httpServer };
 

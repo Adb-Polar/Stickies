@@ -9,5 +9,50 @@ datasource db {
   provider = "postgresql"
 }
 
-// Add your models here
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  username  String?
+  isAdmin   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  notes     Note[]
+  reactions Reaction[]
+}
+
+model Note {
+  id          String     @id @default(uuid())
+  content     String
+  color       String     @default("#fef3c7")
+  x           Float      @default(0)
+  y           Float      @default(0)
+  width       Float      @default(200)
+  height      Float      @default(200)
+  parentId    String?
+  parent      Note?      @relation("NoteThread", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Note[]     @relation("NoteThread")
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  imageUrl    String?
+  doodleData  String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  reactions   Reaction[]
+  @@index([userId])
+  @@index([parentId])
+}
+
+model Reaction {
+  id        String   @id @default(uuid())
+  emoji     String
+  noteId    String
+  note      Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@unique([noteId, userId, emoji])
+  @@index([noteId])
+  @@index([userId])
+}
 
