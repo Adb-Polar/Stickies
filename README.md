@@ -54,7 +54,7 @@ Create a `.env` file in the project root with the following content:
 
 ```bash
 # Database Configuration
-DATABASE_URL="postgresql://postgres:postgres@localhost:5433/stickies?schema=public"
+DATABASE_URL="postgresql://postgres:postgres@localhost:5435/stickies?schema=public"
 
 # Redis Configuration
 REDIS_URL="redis://localhost:6379"
@@ -70,7 +70,7 @@ JWT_SECRET="your-super-secret-jwt-key-change-this-in-production"
 
 **Note:** 
 - Replace `your-super-secret-jwt-key-change-this-in-production` with a strong random string for production
-- The database port is `5433` (not 5432) as configured in docker-compose.yml
+- The database port is `5435` (not 5432) as configured in docker-compose.yml
 
 ### Step 3: Start Docker Services
 
@@ -203,7 +203,7 @@ If you get port conflicts:
 
 - **Port 3000** (Frontend) - Change in `package.json` scripts or use `PORT=3000 npm run dev`
 - **Port 3001** (Backend) - Change `PORT` in `.env` file
-- **Port 5433** (PostgreSQL) - Change in `docker-compose.yml`
+- **Port 5435** (PostgreSQL) - Change in `docker-compose.yml`
 - **Port 6379** (Redis) - Change in `docker-compose.yml`
 
 ---
@@ -283,7 +283,7 @@ npm run prisma:generate
 
 **Solution:**
 1. Check if Docker PostgreSQL is running
-2. Verify `DATABASE_URL` in `.env` matches docker-compose port (5433)
+2. Verify `DATABASE_URL` in `.env` matches docker-compose port (5435)
 3. Reset database (⚠️ Deletes all data):
    ```bash
    docker-compose down -v

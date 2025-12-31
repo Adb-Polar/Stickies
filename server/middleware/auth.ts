@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { verifyToken } from '../utils/jwt';
 
 interface AuthRequest extends Request {
   userId?: string;
@@ -18,22 +18,16 @@ export function authenticateToken(
     return;
   }
 
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    res.status(500).json({ error: 'Server configuration error' });
-    return;
+  try {
+    const decoded = verifyToken(token);
+    if (decoded && decoded.userId) {
+      req.userId = decoded.userId;
+      next();
+    } else {
+      res.status(403).json({ error: 'Invalid token payload' });
+    }
+  } catch {
+    res.status(403).json({ error: 'Invalid or expired token' });
   }
-
-  jwt.verify(token, secret, (err, decoded) => {
-    if (err) {
-      res.status(403).json({ error: 'Invalid or expired token' });
-      return;
-    }
-
-    if (decoded && typeof decoded === 'object' && 'userId' in decoded) {
-      req.userId = decoded.userId as string;
-    }
-    next();
-  });
 }
 
