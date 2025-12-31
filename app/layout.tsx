@@ -23,7 +23,6 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${justAnotherHand.className} antialiased bg-gray-100`}>
         {children}
-        this is
       </body>
     </html>
   );
