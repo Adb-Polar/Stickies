@@ -1,12 +1,20 @@
 import { PrismaClient } from '@prisma/client';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { createClient } from 'redis';
 
 let prisma: PrismaClient;
 let redisClient: ReturnType<typeof createClient>;
 
 beforeAll(async () => {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error('DATABASE_URL environment variable is not set');
+  }
+  const pool = new Pool({ connectionString });
+  const adapter = new PrismaPg(pool);
   prisma = new PrismaClient({
-    datasourceUrl: process.env.DATABASE_URL,
+    adapter,
   });
   await prisma.$connect();
 
