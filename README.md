@@ -459,13 +459,18 @@ npm run prisma:migrate
 stickies/
 ├── app/                    # Next.js app directory
 │   ├── layout.tsx         # Root layout
-│   └── page.tsx           # Home page
+│   └── page.tsx           # Home page (orchestrates app)
 ├── components/            # React components
 │   ├── hooks/             # Custom React hooks
 │   │   └── use-socket.ts  # Socket.io client hook
+│   ├── providers/         # React context providers
+│   │   └── auth-provider.tsx  # Authentication context
 │   └── ui/                # UI components
-│       ├── dnd-canvas.tsx
-│       └── sticky-note.tsx
+│       ├── dnd-canvas.tsx # Main canvas component (drag, pan, zoom)
+│       ├── note-creator.tsx # Note creation modal
+│       ├── note-editor.tsx   # Note editing modal
+│       ├── auth-form.tsx     # Login/signup form
+│       └── sticky-note.tsx    # Legacy component (unused)
 ├── server/                # Express backend
 │   ├── config/            # Configuration
 │   │   ├── database.ts    # Prisma client
@@ -492,9 +497,374 @@ stickies/
 
 ---
 
-## Tech Stack
+## Code Documentation
 
-### Tech Stack
+### Architecture Overview
+
+The application follows a **component-based architecture** with clear separation of concerns:
+
+- **Frontend**: Next.js 16 with React 19, using client components for interactivity
+- **Backend**: Express.js REST API with JWT authentication
+- **Real-time**: Socket.io for live collaboration
+- **Database**: PostgreSQL with Prisma ORM
+- **Caching**: Redis for session management
+
+### Key Components
+
+#### 1. `app/page.tsx` - Main Page Component
+
+**Purpose**: Orchestrates the entire application, managing authentication state and modal visibility.
+
+**Key Responsibilities**:
+- Manages authentication modal (login/signup)
+- Handles note selection state
+- Coordinates note creation and editing modals
+- Lazy loads modals for better performance
+
+**Key State**:
+- `showAuthModal`: Controls authentication modal visibility
+- `selectedNote`: Currently selected note for editing
+- `refreshKey`: Triggers canvas refresh when notes are created/updated/deleted
+
+**Usage**:
+```typescript
+<DndCanvas
+  onNoteSelect={setSelectedNote}
+  selectedNoteId={selectedNote?.id || null}
+  refreshKey={refreshKey}
+/>
+```
+
+---
+
+#### 2. `components/ui/dnd-canvas.tsx` - Canvas Component
+
+**Purpose**: Main canvas component that renders and manages all sticky notes with drag-and-drop, pan, and zoom functionality.
+
+**Key Features**:
+- **Drag & Drop**: Uses `@dnd-kit/core` for smooth note dragging
+- **Pan & Zoom**: Mouse wheel zoom, touch pinch zoom, mouse/touch panning
+- **Viewport Culling**: Only renders notes visible in viewport for performance
+- **Z-index Management**: Incremental counter system for dragged notes
+
+**Performance Optimizations**:
+- **Direct DOM Manipulation**: During pan/zoom gestures, transforms are applied directly to DOM (bypasses React render cycle) for 60fps performance
+- **Refs for Synchronous Access**: Uses `canvasScaleRef` and `canvasPositionRef` to read current values during high-frequency events
+- **Viewport Culling**: Calculates visible notes with padding, only renders those
+- **React.memo**: Note components are memoized to prevent unnecessary re-renders
+- **requestAnimationFrame**: Throttles pan and hover updates
+
+**Key State**:
+- `notes`: Array of notes from API
+- `notePositions`: Map of note IDs to their positions and rotations
+- `canvasPosition`: Current pan position (x, y)
+- `canvasScale`: Current zoom level
+- `noteZIndices`: Map of note IDs to their z-index values
+
+**Key Functions**:
+- `handleDragStart`: Stores initial position when drag begins
+- `handleDragEnd`: Updates note position and assigns new z-index
+- `handleCanvasWheel`: Handles mouse wheel zoom (centered on cursor)
+- `handleCanvasTouchMove`: Handles touch pan and pinch zoom (direct DOM manipulation)
+- `calculateNoteDimensions`: Calculates note height based on content length
+
+**Interaction Zones**:
+- **Header**: Draggable area (grab cursor)
+- **Content**: Double-click to edit, single-click to select text
+
+**Example Usage**:
+```typescript
+<DndCanvas
+  onNoteSelect={(note) => setSelectedNote(note)}
+  selectedNoteId={selectedNoteId}
+  refreshKey={refreshKey}
+/>
+```
+
+---
+
+#### 3. `components/ui/note-creator.tsx` - Note Creation Modal
+
+**Purpose**: Provides UI for creating new notes with a floating action button (FAB).
+
+**Features**:
+- FAB button in bottom-right corner
+- Modal with content input and color picker
+- Keyboard shortcut: 'N' key to open
+- Character limit: 5000 characters
+- Translucent modal background
+
+**Key State**:
+- `isOpen`: Controls modal visibility
+- `content`: Note content text
+- `selectedColor`: Selected color from palette
+
+**API Call**:
+```typescript
+POST /api/notes
+Body: { content, color, width, height, x, y }
+```
+
+---
+
+#### 4. `components/ui/note-editor.tsx` - Note Editing Modal
+
+**Purpose**: Provides UI for editing existing notes (content and color) and deleting notes.
+
+**Features**:
+- Content editing with character limit
+- Color selection from 8 pastel colors
+- Delete button with confirmation dialog
+- Authorization checks (users can only edit their own notes, admins can edit any)
+- Translucent modal background
+
+**Key State**:
+- `content`: Note content text
+- `selectedColor`: Selected color
+- `showDeleteConfirm`: Controls delete confirmation dialog
+
+**API Calls**:
+```typescript
+PUT /api/notes/:id
+Body: { content, color }
+
+DELETE /api/notes/:id
+```
+
+---
+
+### Data Flow
+
+1. **Note Creation**:
+   ```
+   User clicks FAB → NoteCreator opens → User enters content/color → 
+   POST /api/notes → refreshKey++ → DndCanvas refetches notes
+   ```
+
+2. **Note Editing**:
+   ```
+   User double-clicks note → NoteEditor opens → User edits → 
+   PUT /api/notes/:id → refreshKey++ → DndCanvas refetches notes
+   ```
+
+3. **Note Dragging**:
+   ```
+   User drags note header → handleDragStart → handleDragEnd → 
+   Update notePositions state → PUT /api/notes/:id (position update)
+   ```
+
+4. **Canvas Pan/Zoom**:
+   ```
+   User pans/zooms → Direct DOM manipulation (smooth) → 
+   On gesture end → Sync refs to React state
+   ```
+
+---
+
+### Performance Patterns
+
+#### 1. Direct DOM Manipulation During Gestures
+
+**Problem**: React's render cycle causes lag during high-frequency events (pan, zoom).
+
+**Solution**: Apply transforms directly to DOM during gestures, sync to React state on gesture end.
+
+```typescript
+// During touch move (60fps)
+canvasRef.current.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+
+// On touch end (sync to React)
+setCanvasPosition(canvasPositionRef.current);
+setCanvasScale(canvasScaleRef.current);
+```
+
+#### 2. Viewport Culling
+
+**Problem**: Rendering hundreds of notes causes performance issues.
+
+**Solution**: Only render notes visible in viewport with padding.
+
+```typescript
+const visibleNotes = notes.filter(note => {
+  const pos = notePositions.get(note.id);
+  return isNoteVisible(pos, viewport, padding);
+});
+```
+
+#### 3. Incremental Z-Index System
+
+**Problem**: Using fixed high z-index values (like 9999) can cause instability.
+
+**Solution**: Counter-based system where each dragged note gets an incrementing z-index.
+
+```typescript
+// On drag end
+const newZIndex = zIndexCounterRef.current++; // 100, 101, 102, ...
+setNoteZIndices(prev => {
+  const next = new Map(prev);
+  next.set(noteId, newZIndex);
+  return next;
+});
+```
+
+#### 4. Functional State Updates
+
+**Problem**: Stale closures in event handlers cause incorrect calculations.
+
+**Solution**: Use functional state updates to always get latest values.
+
+```typescript
+setCanvasScale((oldScale) => {
+  // oldScale is always current, not stale
+  return newScale;
+});
+```
+
+---
+
+### State Management
+
+The application uses **React hooks** for state management:
+
+- **Local State**: `useState` for component-specific state
+- **Context**: `useAuth` for authentication state (global)
+- **Refs**: `useRef` for values that need synchronous access (pan/zoom)
+- **Memoization**: `useMemo`, `useCallback` for performance optimization
+
+**No global state management library** (Redux, Zustand, etc.) is used - the app is simple enough that React's built-in state management is sufficient.
+
+---
+
+### API Integration
+
+All API calls use the `fetch` API with proper error handling:
+
+```typescript
+const response = await fetch(`${API_URL}/api/notes`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  },
+  body: JSON.stringify(data),
+});
+```
+
+**Error Handling**:
+- Network errors are caught and logged
+- 401 errors trigger logout
+- Validation errors show user-friendly messages
+
+---
+
+### Styling
+
+The application uses **Tailwind CSS** for styling with custom color values:
+
+- **Background**: `#fdfef0` (cream)
+- **Font**: `Caveat` (cursive handwriting style)
+- **Note Colors**: 8 pastel colors (see `NOTE_COLORS` in `dnd-canvas.tsx`)
+
+**Modal Styling**:
+- Translucent background: `bg-black/40` with `backdrop-blur-sm`
+- Consistent across auth, note creator, and note editor modals
+
+---
+
+### Testing
+
+Tests are located in `__tests__/` directory:
+
+- **Unit Tests**: Individual component and function tests
+- **Integration Tests**: API endpoint tests
+- **E2E Tests**: Full user flow tests (planned)
+
+Run tests:
+```bash
+npm run test
+```
+
+---
+
+### Code Style
+
+The codebase follows these conventions:
+
+- **TypeScript**: Strict mode enabled, explicit types
+- **Naming**: camelCase for variables/functions, PascalCase for components
+- **Components**: Functional components with hooks
+- **Comments**: JSDoc comments for public functions and components
+- **File Structure**: One component per file, co-located with related files
+
+---
+
+### Common Patterns
+
+#### 1. Lazy Loading
+
+Modals are lazy-loaded for better initial load performance:
+
+```typescript
+const NoteCreator = lazy(() => import('@/components/ui/note-creator'));
+```
+
+#### 2. Memoization
+
+Expensive calculations and components are memoized:
+
+```typescript
+const dimensions = useMemo(() => calculateNoteDimensions(content), [content]);
+const DraggableNoteMemo = memo(DraggableNote, customComparison);
+```
+
+#### 3. Callback Optimization
+
+Event handlers use `useCallback` to prevent unnecessary re-renders:
+
+```typescript
+const handleNoteClick = useCallback((note) => {
+  // handler logic
+}, [dependencies]);
+```
+
+---
+
+### Troubleshooting Code Issues
+
+#### Issue: Notes not updating after create/edit
+
+**Solution**: Check that `refreshKey` is being incremented and passed to `DndCanvas`.
+
+#### Issue: Pan/zoom feels laggy on mobile
+
+**Solution**: Ensure direct DOM manipulation is used during gestures (check `handleCanvasTouchMove`).
+
+#### Issue: Notes overlapping after drag
+
+**Solution**: Verify z-index is being assigned correctly in `handleDragEnd`.
+
+#### Issue: Zoom center jumps
+
+**Solution**: Ensure functional state updates are used (`setCanvasScale((old) => ...)`).
+
+---
+
+### Future Improvements
+
+Potential areas for enhancement:
+
+- [ ] Virtual scrolling for very large note lists
+- [ ] Undo/redo functionality
+- [ ] Note grouping/categorization
+- [ ] Search functionality
+- [ ] Export notes as image/PDF
+- [ ] Collaborative cursors (show other users' cursors)
+- [ ] Note templates
+- [ ] Rich text editing
+
+---
+
+## Tech Stack
 
 - **Frontend:** Next.js 16, React 19, **@dnd-kit**, Tailwind CSS
 - **Backend:** Node.js, Express.js, Socket.io

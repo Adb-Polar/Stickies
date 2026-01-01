@@ -1,10 +1,37 @@
 'use client';
 
+/**
+ * @fileoverview DndCanvas Component
+ * 
+ * Main canvas component for rendering and interacting with sticky notes.
+ * Implements drag-and-drop, pan, zoom, and viewport culling for optimal performance.
+ * 
+ * Key Features:
+ * - HTML/CSS-based rendering (replaced Konva.js for better performance)
+ * - @dnd-kit for drag-and-drop functionality
+ * - Direct DOM manipulation for smooth 60fps pan/zoom on mobile
+ * - Viewport culling to only render visible notes
+ * - Incremental z-index system for dragged notes
+ * - Text selection support (double-click to edit)
+ * 
+ * Performance Optimizations:
+ * - Viewport culling with dynamic padding
+ * - React.memo for note components
+ * - Direct DOM transforms during gestures (bypasses React render cycle)
+ * - requestAnimationFrame throttling for pan/hover updates
+ * - GPU acceleration with will-change CSS property
+ * 
+ * @module components/ui/dnd-canvas
+ */
+
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { DndContext, DragEndEvent, DragStartEvent, useDraggable, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { useAuth } from '@/components/providers/auth-provider';
 import { API_URL } from '@/lib/api-config';
 
+/**
+ * Note data structure from the API
+ */
 interface Note {
   id: string;
   content: string;
@@ -21,12 +48,22 @@ interface Note {
   };
 }
 
+/**
+ * Props for the DndCanvas component
+ */
 interface DndCanvasProps {
+  /** Callback when a note is selected (double-clicked) */
   onNoteSelect?: (note: Note | null) => void;
+  /** ID of the currently selected note */
   selectedNoteId?: string | null;
+  /** Key to trigger a refresh of notes from the API */
   refreshKey?: number;
 }
 
+/**
+ * Color palette for sticky notes
+ * Maps color values to main and header color variants
+ */
 const NOTE_COLORS: Record<string, { main: string; header: string }> = {
   '#eebea8': { main: '#eebea8', header: '#ebae95' },
   '#aad1fa': { main: '#aad1fa', header: '#95c8f6' },
@@ -38,10 +75,21 @@ const NOTE_COLORS: Record<string, { main: string; header: string }> = {
   '#b3b0f7': { main: '#b3b0f7', header: '#9f9bf8' },
 };
 
+/**
+ * Gets the color configuration for a note color value
+ * @param color - The color hex value
+ * @returns Object with main and header color variants
+ */
 function getNoteColor(color: string): { main: string; header: string } {
   return NOTE_COLORS[color] || { main: color, header: color };
 }
 
+/**
+ * Darkens a hex color by a specified amount
+ * @param color - Hex color string (e.g., "#ff0000")
+ * @param amount - Amount to darken (0-255)
+ * @returns Darkened hex color string
+ */
 function darkenColor(color: string, amount: number): string {
   const hex = color.replace('#', '');
   const r = Math.max(0, parseInt(hex.substr(0, 2), 16) - amount);
@@ -50,15 +98,30 @@ function darkenColor(color: string, amount: number): string {
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
 
+/** Fixed width for all notes in pixels */
 const NOTE_WIDTH = 200;
+/** Height of the note header (adhesive strip) in pixels */
 const HEADER_HEIGHT = 25;
+/** Padding around text content in pixels */
 const TEXT_PADDING = 6;
+/** Font size for note content in pixels */
 const FONT_SIZE = 21.6;
+/** Line height multiplier for text */
 const LINE_HEIGHT = 1.26;
+/** Minimum note height in pixels */
 const MIN_NOTE_HEIGHT = 200;
+/** Maximum note height in pixels */
 const MAX_NOTE_HEIGHT = 3000;
+/** Average word length for text wrapping calculations */
 const AVG_WORD_LENGTH = 5;
 
+/**
+ * Calculates the dimensions of a note based on its content
+ * Uses word count estimation to determine height
+ * @param content - The note content text
+ * @param hasAuthor - Whether the note has an author name to display
+ * @returns Object with noteHeight, authorHeight, and authorY position
+ */
 function calculateNoteDimensions(content: string, hasAuthor: boolean) {
   const charWidth = FONT_SIZE * 0.6;
   const textAreaWidth = NOTE_WIDTH - TEXT_PADDING * 2;
@@ -78,6 +141,15 @@ function calculateNoteDimensions(content: string, hasAuthor: boolean) {
   return { noteHeight, authorHeight, authorY };
 }
 
+/**
+ * Calculates a random position for a new note that doesn't overlap with existing notes
+ * Uses a grid-based approach with collision detection
+ * @param stageWidth - Width of the canvas container
+ * @param stageHeight - Height of the canvas container
+ * @param existingPositions - Array of existing note positions to avoid
+ * @param totalNotes - Total number of notes (used for grid calculation)
+ * @returns Object with x, y coordinates and rotation angle
+ */
 function getNotePosition(
   stageWidth: number,
   stageHeight: number,
@@ -129,20 +201,49 @@ function getNotePosition(
   };
 }
 
+/**
+ * Props for the DraggableNote component
+ */
 interface DraggableNoteProps {
+  /** The note data to display */
   note: Note;
+  /** Position and rotation of the note */
   position: { x: number; y: number; rotation: number };
+  /** Opacity for fade-in animation */
   opacity: number;
+  /** Whether this note is currently selected */
   isSelected: boolean;
+  /** Whether this note is currently hovered */
   isHovered: boolean;
+  /** Callback when note is double-clicked */
   onNoteClick: (note: Note) => void;
+  /** Callback when mouse enters the note */
   onMouseEnter: () => void;
+  /** Callback when mouse leaves the note */
   onMouseLeave: () => void;
+  /** Current canvas zoom scale */
   canvasScale: number;
+  /** Whether this note is currently being dragged */
   isDragging: boolean;
+  /** Base z-index for this note (incremented when dragged) */
   zIndex: number;
 }
 
+/**
+ * Individual draggable note component
+ * Renders a sticky note with header (draggable) and content (editable)
+ * Uses @dnd-kit's useDraggable hook for drag functionality
+ * 
+ * Interaction Zones:
+ * - Header: Draggable area (grab cursor)
+ * - Content: Double-click to edit, single-click to select text
+ * 
+ * Visual States:
+ * - Normal: Standard shadow and opacity
+ * - Hovered: Slight scale up (1.03x) and blue border highlight
+ * - Selected: Stronger blue border highlight
+ * - Dragging: Higher z-index and no transitions
+ */
 function DraggableNote({
   note,
   position,
@@ -305,6 +406,10 @@ function DraggableNote({
   );
 }
 
+/**
+ * Memoized version of DraggableNote to prevent unnecessary re-renders
+ * Only re-renders when relevant props change
+ */
 const DraggableNoteMemo = memo(DraggableNote, (prevProps, nextProps) => {
   return (
     prevProps.note.id === nextProps.note.id &&
@@ -322,6 +427,30 @@ const DraggableNoteMemo = memo(DraggableNote, (prevProps, nextProps) => {
   );
 });
 
+/**
+ * Main canvas component for rendering and interacting with sticky notes
+ * 
+ * Features:
+ * - Fetches notes from API and manages their positions
+ * - Implements pan and zoom with mouse wheel and touch gestures
+ * - Handles drag-and-drop for repositioning notes
+ * - Viewport culling for performance (only renders visible notes)
+ * - Manages z-index for dragged notes (incremental system)
+ * 
+ * Performance Optimizations:
+ * - Direct DOM manipulation during pan/zoom gestures (bypasses React)
+ * - Viewport culling with dynamic padding
+ * - requestAnimationFrame throttling for smooth updates
+ * - React.memo for note components
+ * 
+ * State Management:
+ * - Uses refs for synchronous access during high-frequency events (pan/zoom)
+ * - Syncs refs to React state on gesture end
+ * - Functional state updates to avoid stale closures
+ * 
+ * @param props - Component props
+ * @returns JSX element
+ */
 export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanvasProps) {
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [notes, setNotes] = useState<Note[]>([]);
@@ -530,6 +659,10 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
     };
   }, [containerSize.width, containerSize.height]);
 
+  /**
+   * Handles note click (double-click) to open editor
+   * Only allows editing if user owns the note or is an admin
+   */
   const handleNoteClick = useCallback(
     (note: Note) => {
       if (onNoteSelect && token && user) {
@@ -542,6 +675,10 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
     [onNoteSelect, token, user],
   );
 
+  /**
+   * Handles drag start event
+   * Stores the initial position and sets the active note ID
+   */
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const noteId = event.active.id as string;
     setActiveId(noteId);
@@ -552,6 +689,11 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
     setHoveredNoteId(null);
   }, [notePositions]);
 
+  /**
+   * Handles drag end event
+   * Updates note position and assigns a new z-index to keep it elevated
+   * Uses incremental counter approach (not fixed high values like 9999)
+   */
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, delta } = event;
     const noteId = active.id as string;
@@ -586,6 +728,10 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
     setDragStartPosition(null);
   }, [canvasScale, dragStartPosition]);
 
+  /**
+   * Handles mouse down on canvas for panning
+   * Syncs refs from state before starting pan to avoid stale values
+   */
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('canvas-background')) {
       // Sync refs from state before panning (in case state was updated)
@@ -599,6 +745,11 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
     }
   }, [canvasPosition, canvasScale]);
 
+  /**
+   * Handles mouse move for panning
+   * Uses direct DOM manipulation for smooth 60fps performance
+   * Throttled with requestAnimationFrame
+   */
   const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
     if (isPanning) {
       if (panUpdateRef.current !== null) {
@@ -638,6 +789,11 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
     }
   }, []);
 
+  /**
+   * Handles mouse wheel for zooming
+   * Zooms centered on the mouse cursor position
+   * Uses functional state updates to avoid stale closures
+   */
   const handleCanvasWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     if (!containerRef.current) return;
@@ -669,6 +825,10 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
     setCanvasPosition(newPos);
   }, []);
 
+  /**
+   * Handles touch start for pan and pinch zoom
+   * Detects single touch (pan) vs two touches (pinch zoom)
+   */
   const handleCanvasTouchStart = useCallback((e: React.TouchEvent) => {
     if (e.touches.length === 2) {
       // Sync current state to refs before starting new zoom
@@ -697,6 +857,11 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
     }
   }, [canvasPosition, canvasScale]);
 
+  /**
+   * Handles touch move for pan and pinch zoom
+   * Uses direct DOM manipulation during gesture for smooth performance
+   * Prevents "rubberband" effect on mobile by bypassing React render cycle
+   */
   const handleCanvasTouchMove = useCallback((e: React.TouchEvent) => {
     if (e.touches.length === 2) {
       e.preventDefault();
@@ -772,6 +937,10 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
     }
   }, [isPanning, panStart]);
 
+  /**
+   * Handles touch end
+   * Syncs refs back to React state after gesture completes
+   */
   const handleCanvasTouchEnd = useCallback(() => {
     setIsPanning(false);
     lastTouchDistance.current = null;

@@ -1,15 +1,39 @@
 'use client';
 
+/**
+ * @fileoverview Note Creator Component
+ * 
+ * Modal component for creating new notes.
+ * Provides a floating action button (FAB) that opens a modal for note creation.
+ * 
+ * Features:
+ * - Content input with character limit (5000 chars)
+ * - Color selection from 8 pastel colors
+ * - Translucent modal background matching auth modal style
+ * - Keyboard shortcut: 'N' key to open modal
+ * 
+ * @module components/ui/note-creator
+ */
+
 import { useState } from 'react';
 import { useAuth } from '@/components/providers/auth-provider';
 
+/**
+ * Props for NoteCreator component
+ */
 interface NoteCreatorProps {
+  /** Callback when a note is successfully created */
   onNoteCreated: () => void;
 }
 
 import { API_URL } from '@/lib/api-config';
-const MAX_CONTENT_LENGTH = 5000; // Character limit to prevent abuse
 
+/** Maximum content length to prevent abuse */
+const MAX_CONTENT_LENGTH = 5000;
+
+/**
+ * Available pastel colors for notes
+ */
 const PASTEL_COLORS = [
   { name: 'Apple', value: '#eebea8', header: '#ebae95' },
   { name: 'Blue', value: '#aad1fa', header: '#95c8f6' },
@@ -21,6 +45,11 @@ const PASTEL_COLORS = [
   { name: 'Purple', value: '#b3b0f7', header: '#9f9bf8' },
 ];
 
+/**
+ * Note creator component
+ * Provides a FAB button and modal for creating new notes
+ * Opens modal with 'N' key or button click
+ */
 export function NoteCreator({ onNoteCreated }: NoteCreatorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [content, setContent] = useState('');

@@ -1,8 +1,28 @@
 'use client';
 
+/**
+ * @fileoverview Note Editor Component
+ * 
+ * Modal component for editing existing notes.
+ * Allows users to update note content and color.
+ * Includes delete functionality with confirmation.
+ * 
+ * Features:
+ * - Content editing with character limit (5000 chars)
+ * - Color selection from 8 pastel colors
+ * - Delete confirmation dialog
+ * - Authorization checks (users can only edit their own notes)
+ * - Translucent modal background matching auth modal style
+ * 
+ * @module components/ui/note-editor
+ */
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/providers/auth-provider';
 
+/**
+ * Note data structure
+ */
 interface Note {
   id: string;
   content: string;
@@ -19,16 +39,28 @@ interface Note {
   };
 }
 
+/**
+ * Props for NoteEditor component
+ */
 interface NoteEditorProps {
+  /** The note to edit (null if not provided) */
   note: Note | null;
+  /** Callback when modal is closed */
   onClose: () => void;
+  /** Callback when note is successfully updated */
   onNoteUpdated: () => void;
+  /** Callback when note is successfully deleted */
   onNoteDeleted: () => void;
 }
 
 import { API_URL } from '@/lib/api-config';
-const MAX_CONTENT_LENGTH = 5000; // Character limit to prevent abuse
 
+/** Maximum content length to prevent abuse */
+const MAX_CONTENT_LENGTH = 5000;
+
+/**
+ * Available pastel colors for notes
+ */
 const PASTEL_COLORS = [
   { name: 'Apple', value: '#eebea8', header: '#ebae95' },
   { name: 'Blue', value: '#aad1fa', header: '#95c8f6' },
@@ -40,6 +72,11 @@ const PASTEL_COLORS = [
   { name: 'Purple', value: '#b3b0f7', header: '#9f9bf8' },
 ];
 
+/**
+ * Note editor component
+ * Provides UI for editing note content and color
+ * Handles update and delete operations with proper authorization
+ */
 export function NoteEditor({ note, onClose, onNoteUpdated, onNoteDeleted }: NoteEditorProps) {
   const [content, setContent] = useState('');
   const [selectedColor, setSelectedColor] = useState('');

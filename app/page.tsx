@@ -1,5 +1,21 @@
 'use client';
 
+/**
+ * @fileoverview Home Page Component
+ * 
+ * Main page component that orchestrates the entire application.
+ * Handles authentication, note selection, and modal management.
+ * 
+ * Features:
+ * - Authentication modal (login/signup)
+ * - Note creation modal
+ * - Note editing modal
+ * - User profile display
+ * - Lazy loading for better performance
+ * 
+ * @module app/page
+ */
+
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { DndCanvas } from '@/components/ui/dnd-canvas';
@@ -9,6 +25,9 @@ const AuthForm = lazy(() => import('@/components/ui/auth-form').then(m => ({ def
 const NoteCreator = lazy(() => import('@/components/ui/note-creator').then(m => ({ default: m.NoteCreator })));
 const NoteEditor = lazy(() => import('@/components/ui/note-editor').then(m => ({ default: m.NoteEditor })));
 
+/**
+ * Note data structure
+ */
 interface Note {
   id: string;
   content: string;
@@ -26,6 +45,10 @@ interface Note {
   };
 }
 
+/**
+ * Main content component for the home page
+ * Manages authentication state, note selection, and modal visibility
+ */
 function HomeContent() {
   const { user, logout, isAuthenticated, isLoading: authLoading } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -149,6 +172,9 @@ function HomeContent() {
   );
 }
 
+/**
+ * Default export for Next.js page
+ */
 export default function Home() {
   return <HomeContent />;
 }
