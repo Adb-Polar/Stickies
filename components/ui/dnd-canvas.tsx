@@ -270,6 +270,17 @@ function DraggableNote({
     id: note.id,
   });
 
+  /**
+   * Convert drag offset from screen coordinates to world coordinates
+   * 
+   * @dnd-kit's transform is in screen pixels (viewport coordinates).
+   * Since the canvas has a CSS transform scale(canvasScale) applied,
+   * we need to divide by canvasScale to convert screen pixels to world pixels.
+   * 
+   * Example: If canvasScale = 0.5 (zoomed out 50%):
+   * - 10 screen pixels = 20 world pixels (10 / 0.5 = 20)
+   * - This ensures the note moves the correct distance in world space
+   */
   const dragOffset = transform
     ? {
         x: transform.x / canvasScale,
@@ -693,12 +704,16 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
    * Handles drag end event
    * Updates note position and assigns a new z-index to keep it elevated
    * Uses incremental counter approach (not fixed high values like 9999)
+   * 
+   * Coordinate conversion: delta is in screen pixels, divide by canvasScale
+   * to convert to world coordinates (same as dragOffset calculation above)
    */
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, delta } = event;
     const noteId = active.id as string;
     
     if (dragStartPosition && delta) {
+      // Convert delta from screen coordinates to world coordinates
       const newX = dragStartPosition.x + delta.x / canvasScale;
       const newY = dragStartPosition.y + delta.y / canvasScale;
       
