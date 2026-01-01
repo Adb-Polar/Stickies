@@ -7,6 +7,7 @@
     "dev:server": "tsx watch server/index.ts",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
     "build": "next build",
+    "build:analyze": "cross-env ANALYZE=true next build",
     "start": "next start",
     "start:server": "node dist/server/index.js",
     "lint": "eslint",
@@ -43,6 +44,7 @@
   "devDependencies": {
     "@catppuccin/tailwindcss": "^1.0.0",
     "@jest/globals": "^30.2.0",
+    "@next/bundle-analyzer": "^16.1.1",
     "@tailwindcss/postcss": "^4",
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",
@@ -56,6 +58,7 @@
     "@types/react-dom": "^19",
     "@types/supertest": "^6.0.0",
     "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "husky": "^9.1.7",

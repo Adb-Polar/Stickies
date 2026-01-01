@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useAuth } from '@/components/providers/auth-provider';
-import { AuthForm } from '@/components/ui/auth-form';
-import { NoteCreator } from '@/components/ui/note-creator';
-import { NoteEditor } from '@/components/ui/note-editor';
 import { KonvaCanvas } from '@/components/ui/konva-canvas';
+
+// Lazy load modals for code splitting and better initial load performance
+const AuthForm = lazy(() => import('@/components/ui/auth-form').then(m => ({ default: m.AuthForm })));
+const NoteCreator = lazy(() => import('@/components/ui/note-creator').then(m => ({ default: m.NoteCreator })));
+const NoteEditor = lazy(() => import('@/components/ui/note-editor').then(m => ({ default: m.NoteEditor })));
 
 interface Note {
   id: string;
@@ -239,14 +241,20 @@ function HomeContent() {
         refreshKey={refreshKey}
       />
 
-      {isAuthenticated && <NoteCreator onNoteCreated={handleNoteCreated} />}
+      {isAuthenticated && (
+        <Suspense fallback={null}>
+          <NoteCreator onNoteCreated={handleNoteCreated} />
+        </Suspense>
+      )}
       {isAuthenticated && selectedNote && (
-        <NoteEditor
-          note={selectedNote}
-          onClose={() => setSelectedNote(null)}
-          onNoteUpdated={handleNoteUpdated}
-          onNoteDeleted={handleNoteDeleted}
-        />
+        <Suspense fallback={null}>
+          <NoteEditor
+            note={selectedNote}
+            onClose={() => setSelectedNote(null)}
+            onNoteUpdated={handleNoteUpdated}
+            onNoteDeleted={handleNoteDeleted}
+          />
+        </Suspense>
       )}
 
       {showAuthModal && (
@@ -259,11 +267,13 @@ function HomeContent() {
           }}
         >
           <div className="w-full max-w-md mx-4">
-            <AuthForm
-              mode={authMode}
-              onSuccess={() => setShowAuthModal(false)}
-              onSwitchMode={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}
-            />
+            <Suspense fallback={<div className="text-white">Loading...</div>}>
+              <AuthForm
+                mode={authMode}
+                onSuccess={() => setShowAuthModal(false)}
+                onSwitchMode={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}
+              />
+            </Suspense>
           </div>
         </div>
       )}

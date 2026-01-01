@@ -83,6 +83,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           headers: {
             'Content-Type': 'application/json',
           },
+          mode: 'cors',
+          credentials: 'omit',
           body: JSON.stringify({ email, password, username }),
         });
 
@@ -122,12 +124,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: {
           'Content-Type': 'application/json',
         },
+        mode: 'cors',
+        credentials: 'omit',
         body: JSON.stringify({ email, password }),
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Login failed');
+        let errorMessage = 'Login failed';
+        try {
+          const error = await response.json();
+          errorMessage = error.error || errorMessage;
+        } catch (e) {
+          // If response is not JSON, use status text
+          errorMessage = `${response.status} ${response.statusText}`;
+        }
+        console.error('Login error:', errorMessage, 'Status:', response.status);
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();

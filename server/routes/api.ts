@@ -26,7 +26,34 @@ router.get('/health', async (req: Request, res: Response) => {
 
 router.get('/notes', async (req: Request, res: Response) => {
   try {
+    // Pagination support for performance (default limit: 100)
+    const limit = Math.min(parseInt(req.query.limit as string) || 100, 500); // Max 500 to prevent abuse
+    const cursor = req.query.cursor as string | undefined;
+    
+    // Simple pagination: if cursor provided, find notes created before that note's createdAt
+    let where = {};
+    if (cursor) {
+      try {
+        const cursorNote = await prisma.note.findUnique({
+          where: { id: cursor },
+          select: { createdAt: true },
+        });
+        if (cursorNote) {
+          where = {
+            createdAt: {
+              lt: cursorNote.createdAt,
+            },
+          };
+        }
+      } catch (e) {
+        // If cursor note not found, ignore cursor and return first page
+        console.warn('Cursor note not found, ignoring cursor');
+      }
+    }
+    
     const notes = await prisma.note.findMany({
+      where,
+      take: limit,
       orderBy: { createdAt: 'desc' },
       include: {
         user: {
@@ -39,7 +66,18 @@ router.get('/notes', async (req: Request, res: Response) => {
       },
     });
 
-    res.json({ notes });
+    // Return pagination metadata
+    const hasMore = notes.length === limit;
+    const nextCursor = hasMore ? notes[notes.length - 1].id : null;
+
+    res.json({ 
+      notes,
+      pagination: {
+        hasMore,
+        nextCursor,
+        limit,
+      },
+    });
   } catch (error) {
     console.error('Get notes error:', error);
     res.status(500).json({ error: 'Internal server error' });

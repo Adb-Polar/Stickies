@@ -66,9 +66,10 @@ router.post('/signup', async (req: Request<Record<string, never>, unknown, Signu
     }
 
     const hashedPassword = await hashPassword(password);
+    const normalizedEmail = email.toLowerCase().trim();
     const user = await prisma.user.create({
       data: {
-        email: email.toLowerCase().trim(),
+        email: normalizedEmail,
         password: hashedPassword,
         username: username?.trim() || null,
       },
@@ -82,6 +83,8 @@ router.post('/signup', async (req: Request<Record<string, never>, unknown, Signu
     });
 
     const token = generateToken({ userId: user.id, email: user.email });
+
+    console.log(`Signup successful for user: ${normalizedEmail}`);
 
     res.status(201).json({
       user,
@@ -102,20 +105,25 @@ router.post('/login', async (req: Request<Record<string, never>, unknown, LoginB
       return;
     }
 
+    const normalizedEmail = email.toLowerCase().trim();
     const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
+      where: { email: normalizedEmail },
     });
 
     if (!user) {
+      console.log(`Login attempt failed: User not found for email: ${normalizedEmail}`);
       res.status(401).json({ error: 'Invalid email or password' });
       return;
     }
 
     const isPasswordValid = await comparePassword(password, user.password);
     if (!isPasswordValid) {
+      console.log(`Login attempt failed: Invalid password for email: ${normalizedEmail}`);
       res.status(401).json({ error: 'Invalid email or password' });
       return;
     }
+
+    console.log(`Login successful for user: ${normalizedEmail}`);
 
     const token = generateToken({ userId: user.id, email: user.email });
 
