@@ -2,45 +2,38 @@
 
 A full-stack web application for creating and managing interactive sticky notes on a shared canvas. Built with Next.js, Express.js, PostgreSQL, and Redis, featuring real-time collaboration with Socket.io.
 
-> **Version Note**: This is the **Konva.js implementation** (v1.0). A migration to **@dnd-kit** is planned for the next version to improve drag-and-drop performance and accessibility.
-
 ## Overview
 
 Stickies is an interactive bulletin board where users can create, edit, and delete colorful sticky notes on a canvas. The application features:
 
-- **Interactive Canvas**: Pan and zoom functionality with Konva.js
+- **Interactive Canvas**: Pan and zoom functionality with HTML/CSS and @dnd-kit
+- **Drag and Drop**: Smooth note dragging with @dnd-kit for optimal performance
 - **Note Management**: Create, edit, delete notes with color customization
 - **User Authentication**: JWT-based auth with user profiles
 - **Real-time Updates**: Socket.io for live collaboration
-- **Performance Optimized**: Viewport culling, memoization, and efficient rendering
-- **Mobile Support**: Touch gestures for pan and zoom
+- **Performance Optimized**: Viewport culling, memoization, direct DOM manipulation, and efficient rendering
+- **Mobile Support**: Touch gestures for pan and zoom with smooth performance
 - **Security**: Input validation, authorization checks, SQL injection protection
 
-## Current Status - Konva.js Version (v1.0)
+### Key Features
 
-### ✅ Phase 3: Core Notes Functionality - COMPLETE
-
-All core features implemented and verified:
-- ✅ Note CRUD operations (Create, Read, Update, Delete)
-- ✅ Canvas rendering with Konva.js
-- ✅ Color customization (8 pastel colors)
-- ✅ User authorization (users can only edit/delete their own notes)
-- ✅ Admin privileges (admins can delete any note)
-- ✅ Position persistence (notes maintain positions across sessions)
-- ✅ Performance optimizations (viewport culling, memoization)
-- ✅ Security measures (input validation, character limits, XSS protection)
-- ✅ **Separated interaction zones**: Adhesive header for dragging, content area for editing
-- ✅ **Rectangle hover highlight**: Visual feedback on content area (excludes header)
-- ✅ **Optimized drag system**: Refs for immediate synchronous access, no lag
-- ✅ **UI consistency**: Cream-themed backgrounds matching login/signup style
+- **Note CRUD Operations**: Create, Read, Update, Delete notes with full authorization
+- **Color Customization**: 8 pastel colors to choose from
+- **User Authorization**: Users can only edit/delete their own notes
+- **Admin Privileges**: Admins can delete any note
+- **Position Persistence**: Notes maintain positions across sessions
+- **Text Selection**: Double-click to edit, single-click to select and copy text
+- **Elevated Notes**: Dragged notes stay on top for better visibility
+- **Smooth Interactions**: Optimized for mobile with hundreds of notes
 
 ### Performance Features
 
-- **Viewport Culling**: Only renders notes visible in viewport
+- **Viewport Culling**: Only renders notes visible in viewport with dynamic padding
 - **Memoization**: React.memo for components, useMemo for calculations
-- **Throttled Updates**: RequestAnimationFrame for smooth 60fps interactions
-- **Layer Optimizations**: Disabled hit detection during drag for better performance
-- **Mobile Optimized**: Touch gesture support with throttled updates
+- **Direct DOM Manipulation**: Canvas transforms applied directly during gestures for 60fps performance
+- **Throttled Updates**: RequestAnimationFrame for smooth interactions
+- **Mobile Optimized**: Touch gesture support with optimized pinch zoom
+- **Incremental Z-Index**: Smart z-index management without arbitrary high values
 
 ### Security Features
 
@@ -217,9 +210,9 @@ Once both servers are running:
 - **Health Check:** [http://localhost:3001/health](http://localhost:3001/health)
 
 **What you should see:**
-- A blank canvas with a Konva stage
+- An interactive canvas with drag-and-drop support
 - A connection status indicator in the top-right corner showing "Socket: connected"
-- A sample sticky note on the canvas
+- Sticky notes on the canvas that you can drag, zoom, and interact with
 
 ---
 
@@ -471,7 +464,7 @@ stickies/
 │   ├── hooks/             # Custom React hooks
 │   │   └── use-socket.ts  # Socket.io client hook
 │   └── ui/                # UI components
-│       ├── konva-canvas.tsx
+│       ├── dnd-canvas.tsx
 │       └── sticky-note.tsx
 ├── server/                # Express backend
 │   ├── config/            # Configuration
@@ -501,20 +494,16 @@ stickies/
 
 ## Tech Stack
 
-### Current Version (Konva.js v1.0)
+### Tech Stack
 
-- **Frontend:** Next.js 16, React 19, **react-konva**, Tailwind CSS
+- **Frontend:** Next.js 16, React 19, **@dnd-kit**, Tailwind CSS
 - **Backend:** Node.js, Express.js, Socket.io
 - **Database:** PostgreSQL 16, Prisma ORM
 - **Caching:** Redis 7
 - **Authentication:** JWT, Bcrypt
 - **Security:** Helmet, CORS
 - **Testing:** Jest, Supertest
-
-### Planned Migration
-
-- **Frontend:** Next.js 16, React 19, **@dnd-kit** (replacing react-konva), Tailwind CSS
-- Migration planned to improve drag-and-drop performance and accessibility
+- **Drag & Drop:** @dnd-kit/core for performant drag-and-drop
 
 ---
 

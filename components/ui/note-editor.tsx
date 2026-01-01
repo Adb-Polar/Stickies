@@ -120,7 +120,7 @@ export function NoteEditor({ note, onClose, onNoteUpdated, onNoteDeleted }: Note
 
   return (
     <div
-      className="fixed inset-0 bg-[#fdfef0] bg-opacity-80 flex items-center justify-center z-30 backdrop-blur-sm transition-opacity"
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 backdrop-blur-sm transition-opacity"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           onClose();
