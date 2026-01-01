@@ -2,6 +2,8 @@
 
 A full-stack web application for creating and managing interactive sticky notes on a shared canvas. Built with Next.js, Express.js, PostgreSQL, and Redis, featuring real-time collaboration with Socket.io.
 
+> **Version Note**: This is the **Konva.js implementation** (v1.0). A migration to **@dnd-kit** is planned for the next version to improve drag-and-drop performance and accessibility.
+
 ## Overview
 
 Stickies is an interactive bulletin board where users can create, edit, and delete colorful sticky notes on a canvas. The application features:
@@ -14,7 +16,7 @@ Stickies is an interactive bulletin board where users can create, edit, and dele
 - **Mobile Support**: Touch gestures for pan and zoom
 - **Security**: Input validation, authorization checks, SQL injection protection
 
-## Current Status
+## Current Status - Konva.js Version (v1.0)
 
 ### ✅ Phase 3: Core Notes Functionality - COMPLETE
 
@@ -27,6 +29,10 @@ All core features implemented and verified:
 - ✅ Position persistence (notes maintain positions across sessions)
 - ✅ Performance optimizations (viewport culling, memoization)
 - ✅ Security measures (input validation, character limits, XSS protection)
+- ✅ **Separated interaction zones**: Adhesive header for dragging, content area for editing
+- ✅ **Rectangle hover highlight**: Visual feedback on content area (excludes header)
+- ✅ **Optimized drag system**: Refs for immediate synchronous access, no lag
+- ✅ **UI consistency**: Cream-themed backgrounds matching login/signup style
 
 ### Performance Features
 
@@ -495,13 +501,20 @@ stickies/
 
 ## Tech Stack
 
-- **Frontend:** Next.js 16, React 19, react-konva, Tailwind CSS
+### Current Version (Konva.js v1.0)
+
+- **Frontend:** Next.js 16, React 19, **react-konva**, Tailwind CSS
 - **Backend:** Node.js, Express.js, Socket.io
 - **Database:** PostgreSQL 16, Prisma ORM
 - **Caching:** Redis 7
 - **Authentication:** JWT, Bcrypt
 - **Security:** Helmet, CORS
 - **Testing:** Jest, Supertest
+
+### Planned Migration
+
+- **Frontend:** Next.js 16, React 19, **@dnd-kit** (replacing react-konva), Tailwind CSS
+- Migration planned to improve drag-and-drop performance and accessibility
 
 ---
 
