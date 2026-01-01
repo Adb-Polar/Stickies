@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, FormEvent } from 'react';
-import { useAuth } from '@/components/hooks/use-auth';
+import { useAuth } from '@/components/providers/auth-provider';
 
 interface AuthFormProps {
   mode: 'login' | 'signup';
@@ -31,20 +31,25 @@ export function AuthForm({ mode, onSuccess, onSwitchMode }: AuthFormProps) {
       }
 
       if (result.success) {
-        onSuccess?.();
+        // Call onSuccess after a brief delay to ensure state has updated
+        setTimeout(() => {
+          onSuccess?.();
+        }, 100);
       } else {
         setError(result.error || 'Authentication failed');
       }
-    } catch {
-      setError('An unexpected error occurred');
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : 'An unexpected error occurred';
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="w-full max-w-md mx-auto bg-white rounded-lg shadow-lg p-8">
-      <h2 className="text-2xl font-bold mb-6 text-center">
+    <div className="w-full max-w-md mx-auto bg-[#fdfef0] border-2 border-[#b2a7d1] rounded-[15px] shadow-lg p-8 animate-fade-in" style={{ fontFamily: 'Caveat, cursive' }}>
+      <h2 className="text-2xl font-bold mb-6 text-center text-[#37226f]">
         {mode === 'login' ? 'Login' : 'Sign Up'}
       </h2>
 
@@ -59,7 +64,8 @@ export function AuthForm({ mode, onSuccess, onSwitchMode }: AuthFormProps) {
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border-2 border-[#b2a7d1] rounded-[15px] bg-white focus:outline-none focus:ring-2 focus:ring-[#b2a7d1] text-[#171c28]"
+              style={{ fontFamily: 'Caveat, cursive', fontSize: '16px' }}
               placeholder="Enter username"
             />
           </div>
@@ -75,7 +81,8 @@ export function AuthForm({ mode, onSuccess, onSwitchMode }: AuthFormProps) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 border-2 border-[#b2a7d1] rounded-[15px] bg-white focus:outline-none focus:ring-2 focus:ring-[#b2a7d1] text-[#171c28]"
+            style={{ fontFamily: 'Caveat, cursive', fontSize: '16px' }}
             placeholder="Enter your email"
           />
         </div>
@@ -91,7 +98,8 @@ export function AuthForm({ mode, onSuccess, onSwitchMode }: AuthFormProps) {
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={8}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 border-2 border-[#b2a7d1] rounded-[15px] bg-white focus:outline-none focus:ring-2 focus:ring-[#b2a7d1] text-[#171c28]"
+            style={{ fontFamily: 'Caveat, cursive', fontSize: '16px' }}
             placeholder="Enter your password"
           />
           {mode === 'signup' && (
@@ -108,7 +116,8 @@ export function AuthForm({ mode, onSuccess, onSwitchMode }: AuthFormProps) {
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-[#eaddff] border-2 border-[#b2a7d1] text-[#37226f] py-2 px-4 rounded-[15px] hover:bg-[#d4b5ff] focus:outline-none focus:ring-2 focus:ring-[#b2a7d1] disabled:opacity-50 disabled:cursor-not-allowed font-bold transition-all shadow-md"
+          style={{ fontFamily: 'Caveat, cursive', fontSize: '14px', lineHeight: '19.306px' }}
         >
           {isLoading ? 'Loading...' : mode === 'login' ? 'Login' : 'Sign Up'}
         </button>
@@ -118,7 +127,7 @@ export function AuthForm({ mode, onSuccess, onSwitchMode }: AuthFormProps) {
             <button
               type="button"
               onClick={onSwitchMode}
-              className="text-blue-600 hover:text-blue-800 text-sm"
+              className="text-[#37226f] hover:text-[#5a3d8f] text-sm transition-colors"
             >
               {mode === 'login'
                 ? "Don't have an account? Sign up"

@@ -4,8 +4,10 @@
 @import "@catppuccin/tailwindcss/mocha.css";
 
 :root {
-    --background: #ffffff;
-    --foreground: #171717;
+    --background: #fdfef0;
+    --foreground: #171c28;
+    --note-text: #171c28;
+    --stroke-opacity: 0.57;
 }
 
 @theme inline {
@@ -13,17 +15,59 @@
     --color-foreground: var(--foreground);
     --font-sans: var(--font-geist-sans);
     --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-    :root {
-        --background: #0a0a0a;
-        --foreground: #ededed;
-    }
+    --font-handwriting: var(--font-caveat), cursive;
 }
 
 body {
     background: var(--background);
     color: var(--foreground);
-    font-family: JustAnotherHand, Helvetica, sans-serif;
+    font-family: var(--font-caveat), cursive;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes gentleBounce {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-3px);
+    }
+}
+
+@keyframes noteAppear {
+    from {
+        opacity: 0;
+        transform: scale(0.8) rotate(-5deg);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) rotate(0deg);
+    }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-gentle-bounce {
+    animation: gentleBounce 2.5s ease-in-out infinite;
+}
+
+.animate-note-appear {
+    animation: noteAppear 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Fix cursor styling to prevent white cursor bug */
+canvas {
+    cursor: default !important;
 }

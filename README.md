@@ -2,6 +2,55 @@
 
 A full-stack web application for creating and managing interactive sticky notes on a shared canvas. Built with Next.js, Express.js, PostgreSQL, and Redis, featuring real-time collaboration with Socket.io.
 
+## Overview
+
+Stickies is an interactive bulletin board where users can create, edit, and delete colorful sticky notes on a canvas. The application features:
+
+- **Interactive Canvas**: Pan and zoom functionality with Konva.js
+- **Note Management**: Create, edit, delete notes with color customization
+- **User Authentication**: JWT-based auth with user profiles
+- **Real-time Updates**: Socket.io for live collaboration
+- **Performance Optimized**: Viewport culling, memoization, and efficient rendering
+- **Mobile Support**: Touch gestures for pan and zoom
+- **Security**: Input validation, authorization checks, SQL injection protection
+
+## Current Status
+
+### ✅ Phase 3: Core Notes Functionality - COMPLETE
+
+All core features implemented and verified:
+- ✅ Note CRUD operations (Create, Read, Update, Delete)
+- ✅ Canvas rendering with Konva.js
+- ✅ Color customization (8 pastel colors)
+- ✅ User authorization (users can only edit/delete their own notes)
+- ✅ Admin privileges (admins can delete any note)
+- ✅ Position persistence (notes maintain positions across sessions)
+- ✅ Performance optimizations (viewport culling, memoization)
+- ✅ Security measures (input validation, character limits, XSS protection)
+
+### Performance Features
+
+- **Viewport Culling**: Only renders notes visible in viewport
+- **Memoization**: React.memo for components, useMemo for calculations
+- **Throttled Updates**: RequestAnimationFrame for smooth 60fps interactions
+- **Layer Optimizations**: Disabled hit detection during drag for better performance
+- **Mobile Optimized**: Touch gesture support with throttled updates
+
+### Security Features
+
+- **Input Validation**: Content length limits (5000 chars), color whitelist
+- **Authorization**: JWT-based auth with ownership checks
+- **SQL Injection Protection**: Prisma ORM with parameterized queries
+- **XSS Protection**: React's automatic escaping, no dangerous HTML
+- **CORS Configuration**: Strict in production, flexible in development
+
+### Production Ready
+
+- **Environment Detection**: Auto-detects network IP for mobile access in dev
+- **Production Mode**: Requires explicit API URL configuration
+- **CORS Security**: Strict origin checking in production
+- **Error Handling**: Comprehensive error handling and user feedback
+
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
@@ -12,6 +61,7 @@ A full-stack web application for creating and managing interactive sticky notes 
 - [Troubleshooting](#troubleshooting)
 - [Available Scripts](#available-scripts)
 - [Project Structure](#project-structure)
+- [Production Deployment](#production-deployment)
 
 ---
 
@@ -484,6 +534,56 @@ Opens a web interface at `http://localhost:5555`
 | `FRONTEND_URL` | Frontend URL for CORS | `http://localhost:3000` |
 | `NEXT_PUBLIC_API_URL` | Backend API URL | `http://localhost:3001` |
 | `JWT_SECRET` | Secret for JWT tokens | Required |
+| `NODE_ENV` | Environment mode | `development` |
+
+---
+
+## Production Deployment
+
+### Environment Variables
+
+**Frontend (Next.js):**
+```bash
+NODE_ENV=production
+NEXT_PUBLIC_API_URL=https://api.yourdomain.com  # Must be set explicitly
+```
+
+**Backend (Express):**
+```bash
+NODE_ENV=production
+PORT=3001
+FRONTEND_URL=https://yourdomain.com  # Your frontend domain (for CORS)
+DATABASE_URL=postgresql://...         # Production database
+REDIS_URL=redis://...                 # Production Redis
+JWT_SECRET=...                        # Strong secret key (use: openssl rand -base64 32)
+```
+
+### Production Features
+
+- **Strict CORS**: Only allows `FRONTEND_URL` in production
+- **API URL Required**: Throws error if `NEXT_PUBLIC_API_URL` is missing
+- **Network Binding**: Server listens on `0.0.0.0` (should use reverse proxy)
+- **HTTPS Required**: Use HTTPS in production for secure cookies and WebSocket
+
+### Deployment Checklist
+
+- [ ] Set `NODE_ENV=production`
+- [ ] Set `NEXT_PUBLIC_API_URL` to production API URL
+- [ ] Set `FRONTEND_URL` to production frontend URL
+- [ ] Use HTTPS (required for production)
+- [ ] Configure reverse proxy (nginx, Cloudflare, etc.)
+- [ ] Set up production database (PostgreSQL)
+- [ ] Set up Redis for caching
+- [ ] Use strong `JWT_SECRET` (generate with: `openssl rand -base64 32`)
+- [ ] Test CORS with production URLs
+- [ ] Verify API endpoints are accessible
+
+### Mobile/Network Access (Development)
+
+The application automatically detects network IP addresses for mobile access:
+- Access from mobile: `http://<your-computer-ip>:3000`
+- Backend automatically adjusts API URL to match hostname
+- CORS allows network IPs in development mode
 
 ---
 

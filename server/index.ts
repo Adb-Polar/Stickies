@@ -11,9 +11,46 @@ dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
+// CORS configuration - different behavior for development vs production
+const corsOrigin = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  
+  // Production: Strict CORS - only allow explicit FRONTEND_URL
+  if (isProduction) {
+    if (!origin || origin === frontendUrl) {
+      callback(null, true);
+    } else {
+      console.warn(`CORS blocked origin in production: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+    return;
+  }
+  
+  // Development: Allow localhost, 127.0.0.1, and network IPs
+  const allowedOrigins = [
+    frontendUrl,
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ];
+  
+  // Allow any IP address on port 3000 for development (mobile/network access)
+  if (origin && /^http:\/\/\d+\.\d+\.\d+\.\d+:3000$/.test(origin)) {
+    callback(null, true);
+    return;
+  }
+  
+  // Allow exact matches
+  if (!origin || allowedOrigins.includes(origin)) {
+    callback(null, true);
+  } else {
+    callback(new Error('Not allowed by CORS'));
+  }
+};
+
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: corsOrigin,
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -25,7 +62,7 @@ const PORT = process.env.PORT || 3001;
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: corsOrigin,
     credentials: true,
   }),
 );
@@ -80,8 +117,19 @@ async function startServer(): Promise<void> {
   try {
     await connectDatabase();
     await connectRedis();
-    httpServer.listen(PORT, () => {
+    // Bind to 0.0.0.0 to allow network access (for mobile/remote devices)
+    // Bind to 0.0.0.0 to allow network access
+    // In production, this should be behind a reverse proxy (nginx, etc.)
+    const host = '0.0.0.0';
+    httpServer.listen(PORT, host, () => {
       console.log(`Server running on port ${PORT}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`Accessible at http://localhost:${PORT}`);
+        console.log(`Network access: http://<your-ip>:${PORT}`);
+      } else {
+        console.log(`Production server listening on ${host}:${PORT}`);
+        console.log('Ensure FRONTEND_URL and CORS are properly configured');
+      }
     });
   } catch (error) {
     console.error('Failed to start server:', error);

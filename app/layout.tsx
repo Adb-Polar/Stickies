@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { Just_Another_Hand } from "next/font/google";
+import { Caveat } from "next/font/google";
 import "./globals.css";
+import { AuthProvider } from "@/components/providers/auth-provider";
 
-const justAnotherHand = Just_Another_Hand({
-  variable: "--font-just-another-hand",
-  weight: "400",
+const caveat = Caveat({
+  variable: "--font-caveat",
+  weight: ["400", "500", "600", "700"],
   subsets: ["latin"],
   preload: true,
 });
@@ -21,8 +22,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${justAnotherHand.className} antialiased bg-gray-100`}>
-        {children}
+      <body className={`${caveat.className} antialiased`}>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

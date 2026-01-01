@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 
 interface User {
   id: string;
@@ -17,9 +17,18 @@ interface AuthState {
   isAuthenticated: boolean;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+interface AuthContextType extends AuthState {
+  signup: (email: string, password: string, username?: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => void;
+  verifyToken: () => Promise<void>;
+}
 
-export function useAuth() {
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+import { API_URL } from '@/lib/api-config';
+
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
     token: null,
@@ -188,12 +197,26 @@ export function useAuth() {
     }
   }, [logout]);
 
-  return {
-    ...authState,
-    signup,
-    login,
-    logout,
-    verifyToken,
-  };
+  return (
+    <AuthContext.Provider
+      value={{
+        ...authState,
+        signup,
+        login,
+        logout,
+        verifyToken,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 }
 

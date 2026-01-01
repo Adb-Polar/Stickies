@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-
-const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { getApiUrl } from '@/lib/api-config';
 
 export function useSocket(): Socket | null {
   const socketRef = useRef<Socket | null>(null);
@@ -11,7 +10,8 @@ export function useSocket(): Socket | null {
 
   useEffect(() => {
     if (!socketRef.current) {
-      const newSocket = io(SOCKET_URL, {
+      const socketUrl = getApiUrl();
+      const newSocket = io(socketUrl, {
         transports: ['websocket'],
         reconnection: true,
         reconnectionDelay: 1000,
