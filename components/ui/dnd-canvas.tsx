@@ -168,12 +168,39 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     fetchNotes();
   }, [fetchNotes, refreshKey]);
 
+  /**
+   * Resets note initialization tracking when refreshKey changes
+   * 
+   * refreshKey Pattern:
+   * - Incremented by parent when notes are created/updated/deleted
+   * - Forces canvas to refetch notes from API
+   * - Clearing initializedNotesRef allows re-initialization of positions
+   * - Prevents stale position data from persisting across refreshes
+   */
   useEffect(() => {
     if (refreshKey && refreshKey > 0) {
       initializedNotesRef.current.clear();
     }
   }, [refreshKey]);
 
+  /**
+   * Initializes note positions and fade-in animations
+   * 
+   * Position Initialization:
+   * - New notes (x=0, y=0 or missing) get random non-overlapping positions
+   * - Existing notes keep their positions from previous render
+   * - Uses getNotePosition() utility for collision detection
+   * 
+   * Fade-in Animation:
+   * - New notes start with opacity 0
+   * - Staggered animation: each note fades in 50ms after the previous
+   * - Creates a pleasant cascading effect when notes load
+   * - index * 50ms delay prevents all notes from appearing simultaneously
+   * 
+   * Cleanup:
+   * - Removes positions for notes that no longer exist
+   * - Tracks initialized notes to prevent re-initialization
+   */
   useEffect(() => {
     if (notes.length > 0 && containerSize.width > 0 && containerSize.height > 0) {
       setNotePositions((prevPositions) => {
@@ -181,10 +208,12 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
         const newNoteIds = new Set(notes.map((n) => n.id));
         let hasNewNotes = false;
 
+        // Build array of existing positions for collision detection
         const existingPositions = Array.from(newPositions.values()).map(p => ({ x: p.x, y: p.y }));
         
         notes.forEach((note) => {
           const existingPos = prevPositions.get(note.id);
+          // Initialize position if note is new or at origin (0,0)
           if (!existingPos || (existingPos.x === 0 && existingPos.y === 0)) {
             const pos = getNotePosition(containerSize.width, containerSize.height, existingPositions, notes.length);
             newPositions.set(note.id, pos);
@@ -196,6 +225,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
           }
         });
 
+        // Cleanup: remove positions for deleted notes
         prevPositions.forEach((_, noteId) => {
           if (!newNoteIds.has(noteId)) {
             newPositions.delete(noteId);
@@ -203,7 +233,9 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
           }
         });
 
+        // Set up fade-in animation for new notes
         if (hasNewNotes) {
+          // Start all new notes at opacity 0
           setNoteOpacities((prev) => {
             const next = new Map(prev);
             notes.forEach((note) => {
@@ -214,6 +246,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
             return next;
           });
 
+          // Staggered fade-in: each note fades in 50ms after the previous
           notes.forEach((note, index) => {
             const existingPos = prevPositions.get(note.id);
             if (!existingPos || (existingPos.x === 0 && existingPos.y === 0)) {
@@ -223,7 +256,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
                   next.set(note.id, 1);
                   return next;
                 });
-              }, index * 50);
+              }, index * 50); // 50ms delay per note for cascading effect
             }
           });
         }
@@ -426,8 +459,26 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
 
   /**
    * Handles mouse wheel for zooming
-   * Zooms centered on the mouse cursor position
-   * Uses functional state updates to avoid stale closures
+   * Zooms centered on the mouse cursor position (the point under cursor stays fixed)
+   * 
+   * Zoom Algorithm:
+   * 1. Get mouse position in screen coordinates
+   * 2. Convert to world coordinates using OLD scale
+   * 3. Calculate NEW scale (10% per scroll step, clamped 0.5x - 3x)
+   * 4. Calculate NEW pan position so the world point stays under mouse cursor
+   * 
+   * Why this works:
+   * - World coordinates are independent of zoom level
+   * - By keeping the world point under the cursor, zoom feels natural
+   * - Formula: newPan = mouseScreen - (worldPoint * newScale)
+   * 
+   * Example:
+   * - Mouse at screen (100, 100), zoom 1x, pan (0, 0)
+   * - World point = (100, 100)
+   * - Zoom to 2x: newPan = (100, 100) - (100, 100) * 2 = (-100, -100)
+   * - World point (100, 100) now at screen (100, 100) ✓
+   * 
+   * Uses refs for synchronous access to avoid stale closures
    */
   const handleCanvasWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -437,25 +488,29 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
     
-    // Use refs to get current values synchronously
+    // Use refs to get current values synchronously (avoids stale closures)
     const oldScale = canvasScaleRef.current;
     const oldPos = canvasPositionRef.current;
     
+    // Zoom factor: 10% per scroll step
     const scaleBy = 1.1;
     const newScale = e.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
+    // Clamp zoom between 0.5x (zoomed out) and 3x (zoomed in)
     const clampedScale = Math.max(0.5, Math.min(3, newScale));
     
     // Convert mouse position to world coordinates using OLD scale
+    // World coordinates are independent of zoom level
     const worldX = (mouseX - oldPos.x) / oldScale;
     const worldY = (mouseY - oldPos.y) / oldScale;
     
-    // Calculate new position so the world point stays under the mouse with NEW scale
+    // Calculate new pan position so the world point stays under the mouse with NEW scale
+    // This keeps the zoom centered on the cursor
     const newPos = {
       x: mouseX - worldX * clampedScale,
       y: mouseY - worldY * clampedScale,
     };
     
-    // Update both states together
+    // Update both states together (scale and position must update atomically)
     setCanvasScale(clampedScale);
     setCanvasPosition(newPos);
   }, []);
@@ -494,8 +549,24 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
 
   /**
    * Handles touch move for pan and pinch zoom
-   * Uses direct DOM manipulation during gesture for smooth performance
-   * Prevents "rubberband" effect on mobile by bypassing React render cycle
+   * Uses direct DOM manipulation during gesture for smooth 60fps performance
+   * 
+   * Performance Strategy:
+   * - Direct DOM manipulation bypasses React render cycle during gesture
+   * - Prevents "rubberband" effect on mobile (laggy scrolling)
+   * - Updates refs immediately for synchronous access
+   * - Syncs to React state on gesture end (for other components)
+   * 
+   * Two-finger Pinch Zoom:
+   * - Calculates distance between two touches
+   * - Scales based on distance change from initial pinch
+   * - Centers zoom on midpoint between touches
+   * - Uses requestAnimationFrame for smooth updates
+   * 
+   * Single-finger Pan:
+   * - Updates canvas position based on touch movement
+   * - Uses requestAnimationFrame to throttle updates
+   * - Applies transform directly to DOM element
    */
   const handleCanvasTouchMove = useCallback((e: React.TouchEvent) => {
     if (e.touches.length === 2) {
@@ -596,29 +667,53 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     }
   }, []);
 
+  /**
+   * Calculates which notes are visible in the viewport for viewport culling
+   * 
+   * Viewport Culling Strategy:
+   * 1. Convert screen viewport to world coordinates (accounting for pan and zoom)
+   * 2. Add dynamic padding that scales with zoom level (more padding when zoomed in)
+   * 3. Filter notes using AABB (Axis-Aligned Bounding Box) collision detection
+   * 
+   * Why dynamic padding?
+   * - When zoomed in, notes move faster across screen, so we need more padding
+   * - Prevents notes from popping in/out at viewport edges during pan
+   * - Minimum 200px padding ensures smooth scrolling experience
+   * 
+   * Coordinate System:
+   * - Screen coordinates: pixels relative to viewport (0,0 at top-left)
+   * - World coordinates: pixels in the infinite canvas space
+   * - Conversion: world = (screen - pan) / scale
+   */
   const visibleNotes = useMemo(() => {
     if (notes.length === 0 || containerSize.width === 0 || containerSize.height === 0) {
       return notes;
     }
 
+    // Convert screen viewport to world coordinates
+    // Negative because pan moves canvas in opposite direction
     const worldLeft = -canvasPosition.x / canvasScale;
     const worldTop = -canvasPosition.y / canvasScale;
     const worldRight = worldLeft + containerSize.width / canvasScale;
     const worldBottom = worldTop + containerSize.height / canvasScale;
 
+    // Dynamic padding: scales with zoom (more padding when zoomed in)
+    // Minimum 200px ensures notes don't pop in/out at edges
     const padding = Math.max(200, 100 * canvasScale);
     const paddedLeft = worldLeft - padding;
     const paddedTop = worldTop - padding;
     const paddedRight = worldRight + padding;
     const paddedBottom = worldBottom + padding;
 
+    // AABB collision detection: note is visible if it overlaps with padded viewport
     return notes.filter((note) => {
       const position = notePositions.get(note.id);
-      if (!position) return true;
+      if (!position) return true; // Render if position not yet calculated
 
       const noteRight = position.x + NOTE_WIDTH;
       const noteBottom = position.y + NOTE_HEIGHT;
 
+      // Check if note's bounding box overlaps with padded viewport
       return (
         position.x < paddedRight &&
         noteRight > paddedLeft &&

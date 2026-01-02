@@ -90,6 +90,36 @@ export function darkenColor(color: string, amount: number): string {
  * @param totalNotes - Total number of notes (used for grid calculation)
  * @returns Object with x, y coordinates and rotation angle
  */
+/**
+ * Calculates a random position for a new note that doesn't overlap with existing notes
+ * Uses a grid-based approach with collision detection
+ * 
+ * Algorithm:
+ * 1. Calculate virtual canvas size based on total notes (grid-based estimation)
+ * 2. Try up to 50 random positions within virtual canvas
+ * 3. Check distance to existing notes (must be > 70% of note size)
+ * 4. Return first non-overlapping position, or random position if all attempts fail
+ * 
+ * Grid Calculation:
+ * - Estimates notes per row/column based on square root of total notes
+ * - Creates virtual canvas large enough to fit all notes with spacing
+ * - Minimum canvas size: 4000px to ensure enough space
+ * 
+ * Collision Detection:
+ * - Uses Euclidean distance: sqrt(dx² + dy²)
+ * - Minimum spacing: 70% of note size (196px for 280px notes)
+ * - Prevents notes from being too close together
+ * 
+ * Rotation:
+ * - Random rotation between -7.5° and +7.5° for natural look
+ * - Applied to all notes for visual variety
+ * 
+ * @param stageWidth - Width of the canvas container (unused, kept for API compatibility)
+ * @param stageHeight - Height of the canvas container (unused, kept for API compatibility)
+ * @param existingPositions - Array of existing note positions to avoid
+ * @param totalNotes - Total number of notes (used for grid calculation)
+ * @returns Object with x, y coordinates and rotation angle
+ */
 export function getNotePosition(
   stageWidth: number,
   stageHeight: number,
@@ -97,43 +127,53 @@ export function getNotePosition(
   totalNotes: number = 0,
 ): { x: number; y: number; rotation: number } {
   const noteSize = NOTE_WIDTH;
-  const maxAttempts = 50;
+  const maxAttempts = 50; // Maximum tries to find non-overlapping position
   
+  // Minimum spacing: 70% of note size (prevents notes from being too close)
   const minSpacing = noteSize * 0.7;
+  
+  // Grid-based estimation: calculate how many notes per row/column
   const notesPerRow = Math.ceil(Math.sqrt(totalNotes || 100));
   const notesPerCol = Math.ceil((totalNotes || 100) / notesPerRow);
   
+  // Calculate virtual canvas size (minimum 4000px for large note counts)
   const minCanvasSize = 4000;
   const calculatedWidth = Math.max(minCanvasSize, notesPerRow * minSpacing * 1.5);
   const calculatedHeight = Math.max(minCanvasSize, notesPerCol * minSpacing * 1.5);
   
   const virtualWidth = calculatedWidth;
   const virtualHeight = calculatedHeight;
+  // Center the virtual canvas around origin (0, 0)
   const offsetX = -virtualWidth / 2;
   const offsetY = -virtualHeight / 2;
   
+  // Try to find non-overlapping position
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const x = offsetX + Math.random() * virtualWidth;
     const y = offsetY + Math.random() * virtualHeight;
-    const rotation = (Math.random() - 0.5) * 15;
+    const rotation = (Math.random() - 0.5) * 15; // -7.5° to +7.5°
 
+    // Check distance to all existing notes
     let hasSignificantOverlap = false;
     for (const existing of existingPositions) {
       const dx = Math.abs(x - existing.x);
       const dy = Math.abs(y - existing.y);
       const distance = Math.sqrt(dx * dx + dy * dy);
       
+      // Overlap if distance is less than minimum spacing
       if (distance < noteSize * 0.7) {
         hasSignificantOverlap = true;
         break;
       }
     }
 
+    // Return first non-overlapping position found
     if (!hasSignificantOverlap) {
       return { x, y, rotation };
     }
   }
 
+  // Fallback: return random position if all attempts failed (should be rare)
   return {
     x: offsetX + Math.random() * virtualWidth,
     y: offsetY + Math.random() * virtualHeight,

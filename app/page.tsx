@@ -58,6 +58,14 @@ function HomeContent() {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [viewedNote, setViewedNote] = useState<Note | null>(null);
+  /**
+   * Refresh key pattern: Incremented to trigger canvas refetch
+   * 
+   * When notes are created/updated/deleted, incrementing this key
+   * causes DndCanvas to refetch notes from the API.
+   * 
+   * This is simpler than prop drilling callbacks through multiple components.
+   */
   const [refreshKey, setRefreshKey] = useState(0);
   const [showNoteCreator, setShowNoteCreator] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
