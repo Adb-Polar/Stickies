@@ -19,11 +19,14 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { DndCanvas } from '@/components/ui/dnd-canvas';
+import { BottomNav } from '@/components/ui/bottom-nav';
 
 // Lazy load modals for code splitting and better initial load performance
 const AuthForm = lazy(() => import('@/components/ui/auth-form').then(m => ({ default: m.AuthForm })));
 const NoteCreator = lazy(() => import('@/components/ui/note-creator').then(m => ({ default: m.NoteCreator })));
 const NoteEditor = lazy(() => import('@/components/ui/note-editor').then(m => ({ default: m.NoteEditor })));
+const NoteView = lazy(() => import('@/components/ui/note-view').then(m => ({ default: m.NoteView })));
+const ProfileModal = lazy(() => import('@/components/ui/profile-modal').then(m => ({ default: m.ProfileModal })));
 
 /**
  * Note data structure
@@ -54,7 +57,10 @@ function HomeContent() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [viewedNote, setViewedNote] = useState<Note | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showNoteCreator, setShowNoteCreator] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   // Auto-close modal when authentication succeeds
   useEffect(() => {
@@ -128,15 +134,52 @@ function HomeContent() {
       {/* DnD Canvas */}
       <DndCanvas
         onNoteSelect={setSelectedNote}
+        onNoteView={setViewedNote}
         selectedNoteId={selectedNote?.id || null}
         refreshKey={refreshKey}
       />
 
+      {/* Bottom Navigation Bar */}
+      {isAuthenticated && (
+        <BottomNav
+          onAddNote={() => setShowNoteCreator(true)}
+          onProfile={() => setShowProfileModal(true)}
+          onMiddleAction={() => {
+            // Placeholder for future feature
+            console.log('Middle action clicked');
+          }}
+          isHidden={!!viewedNote || showNoteCreator || !!selectedNote}
+        />
+      )}
+
       {isAuthenticated && (
         <Suspense fallback={null}>
-          <NoteCreator onNoteCreated={handleNoteCreated} />
+          <NoteCreator
+            isOpen={showNoteCreator}
+            onClose={() => setShowNoteCreator(false)}
+            onNoteCreated={() => {
+              handleNoteCreated();
+              setShowNoteCreator(false);
+            }}
+          />
         </Suspense>
       )}
+      {viewedNote && (
+        <Suspense fallback={null}>
+          <NoteView
+            note={viewedNote}
+            onClose={() => setViewedNote(null)}
+            onEdit={() => {
+              if (isAuthenticated) {
+                setSelectedNote(viewedNote);
+                setViewedNote(null);
+              }
+            }}
+            onNoteDeleted={handleNoteDeleted}
+          />
+        </Suspense>
+      )}
+
       {isAuthenticated && selectedNote && (
         <Suspense fallback={null}>
           <NoteEditor
@@ -167,6 +210,12 @@ function HomeContent() {
             </Suspense>
           </div>
         </div>
+      )}
+
+      {isAuthenticated && showProfileModal && (
+        <Suspense fallback={null}>
+          <ProfileModal onClose={() => setShowProfileModal(false)} />
+        </Suspense>
       )}
     </div>
   );

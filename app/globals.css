@@ -67,6 +67,30 @@ body {
     animation: noteAppear 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(100%);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-slide-up {
+    animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+
 /* Fix cursor styling to prevent white cursor bug */
 canvas {
     cursor: default !important;

@@ -24,419 +24,27 @@
  * @module components/ui/dnd-canvas
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
-import { DndContext, DragEndEvent, DragStartEvent, useDraggable, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { useAuth } from '@/components/providers/auth-provider';
 import { API_URL } from '@/lib/api-config';
-
-/**
- * Note data structure from the API
- */
-interface Note {
-  id: string;
-  content: string;
-  color: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  userId: string;
-  user: {
-    id: string;
-    email: string;
-    username: string | null;
-  };
-}
+import { DraggableNote, type Note } from './draggable-note';
+import { getNotePosition, NOTE_WIDTH, NOTE_HEIGHT } from '@/lib/note-utils';
 
 /**
  * Props for the DndCanvas component
  */
 interface DndCanvasProps {
-  /** Callback when a note is selected (double-clicked) */
+  /** Callback when a note is selected (double-clicked) for editing */
   onNoteSelect?: (note: Note | null) => void;
+  /** Callback when a note is clicked (single-clicked) for viewing */
+  onNoteView?: (note: Note | null) => void;
   /** ID of the currently selected note */
   selectedNoteId?: string | null;
   /** Key to trigger a refresh of notes from the API */
   refreshKey?: number;
 }
 
-/**
- * Color palette for sticky notes
- * Maps color values to main and header color variants
- */
-const NOTE_COLORS: Record<string, { main: string; header: string }> = {
-  '#eebea8': { main: '#eebea8', header: '#ebae95' },
-  '#aad1fa': { main: '#aad1fa', header: '#95c8f6' },
-  '#f6cca4': { main: '#f6cca4', header: '#f4c08d' },
-  '#eeddb1': { main: '#eeddb1', header: '#ead6a1' },
-  '#faefad': { main: '#faefad', header: '#f9ef99' },
-  '#ccaf9d': { main: '#ccaf9d', header: '#caa88f' },
-  '#bbfce6': { main: '#bbfce6', header: '#a9fce0' },
-  '#b3b0f7': { main: '#b3b0f7', header: '#9f9bf8' },
-};
-
-/**
- * Gets the color configuration for a note color value
- * @param color - The color hex value
- * @returns Object with main and header color variants
- */
-function getNoteColor(color: string): { main: string; header: string } {
-  return NOTE_COLORS[color] || { main: color, header: color };
-}
-
-/**
- * Darkens a hex color by a specified amount
- * @param color - Hex color string (e.g., "#ff0000")
- * @param amount - Amount to darken (0-255)
- * @returns Darkened hex color string
- */
-function darkenColor(color: string, amount: number): string {
-  const hex = color.replace('#', '');
-  const r = Math.max(0, parseInt(hex.substr(0, 2), 16) - amount);
-  const g = Math.max(0, parseInt(hex.substr(2, 2), 16) - amount);
-  const b = Math.max(0, parseInt(hex.substr(4, 2), 16) - amount);
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-}
-
-/** Fixed width for all notes in pixels */
-const NOTE_WIDTH = 200;
-/** Height of the note header (adhesive strip) in pixels */
-const HEADER_HEIGHT = 25;
-/** Padding around text content in pixels */
-const TEXT_PADDING = 6;
-/** Font size for note content in pixels */
-const FONT_SIZE = 21.6;
-/** Line height multiplier for text */
-const LINE_HEIGHT = 1.26;
-/** Minimum note height in pixels */
-const MIN_NOTE_HEIGHT = 200;
-/** Maximum note height in pixels */
-const MAX_NOTE_HEIGHT = 3000;
-/** Average word length for text wrapping calculations */
-const AVG_WORD_LENGTH = 5;
-
-/**
- * Calculates the dimensions of a note based on its content
- * Uses word count estimation to determine height
- * @param content - The note content text
- * @param hasAuthor - Whether the note has an author name to display
- * @returns Object with noteHeight, authorHeight, and authorY position
- */
-function calculateNoteDimensions(content: string, hasAuthor: boolean) {
-  const charWidth = FONT_SIZE * 0.6;
-  const textAreaWidth = NOTE_WIDTH - TEXT_PADDING * 2;
-  const charsPerLine = Math.floor(textAreaWidth / charWidth);
-  const wordsPerLine = Math.floor(charsPerLine / AVG_WORD_LENGTH);
-  const wordCount = content.split(/\s+/).filter(w => w.length > 0).length;
-  const estimatedLines = Math.max(1, Math.ceil((wordCount / wordsPerLine) * 0.62));
-  const contentHeight = (estimatedLines - 1) * (FONT_SIZE * LINE_HEIGHT) + FONT_SIZE;
-  
-  const authorSpacing = TEXT_PADDING * 0.5;
-  const authorHeight = hasAuthor ? FONT_SIZE + TEXT_PADDING + authorSpacing : 0;
-  const textHeight = TEXT_PADDING + contentHeight + authorHeight;
-  const calculatedHeight = HEADER_HEIGHT + textHeight;
-  const noteHeight = Math.max(MIN_NOTE_HEIGHT, Math.min(calculatedHeight, MAX_NOTE_HEIGHT));
-  const authorY = noteHeight - HEADER_HEIGHT - TEXT_PADDING - FONT_SIZE;
-  
-  return { noteHeight, authorHeight, authorY };
-}
-
-/**
- * Calculates a random position for a new note that doesn't overlap with existing notes
- * Uses a grid-based approach with collision detection
- * @param stageWidth - Width of the canvas container
- * @param stageHeight - Height of the canvas container
- * @param existingPositions - Array of existing note positions to avoid
- * @param totalNotes - Total number of notes (used for grid calculation)
- * @returns Object with x, y coordinates and rotation angle
- */
-function getNotePosition(
-  stageWidth: number,
-  stageHeight: number,
-  existingPositions: Array<{ x: number; y: number }> = [],
-  totalNotes: number = 0,
-): { x: number; y: number; rotation: number } {
-  const noteSize = 200;
-  const maxAttempts = 50;
-  
-  const minSpacing = noteSize * 0.7;
-  const notesPerRow = Math.ceil(Math.sqrt(totalNotes || 100));
-  const notesPerCol = Math.ceil((totalNotes || 100) / notesPerRow);
-  
-  const minCanvasSize = 4000;
-  const calculatedWidth = Math.max(minCanvasSize, notesPerRow * minSpacing * 1.5);
-  const calculatedHeight = Math.max(minCanvasSize, notesPerCol * minSpacing * 1.5);
-  
-  const virtualWidth = calculatedWidth;
-  const virtualHeight = calculatedHeight;
-  const offsetX = -virtualWidth / 2;
-  const offsetY = -virtualHeight / 2;
-  
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const x = offsetX + Math.random() * virtualWidth;
-    const y = offsetY + Math.random() * virtualHeight;
-    const rotation = (Math.random() - 0.5) * 15;
-
-    let hasSignificantOverlap = false;
-    for (const existing of existingPositions) {
-      const dx = Math.abs(x - existing.x);
-      const dy = Math.abs(y - existing.y);
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      
-      if (distance < noteSize * 0.7) {
-        hasSignificantOverlap = true;
-        break;
-      }
-    }
-
-    if (!hasSignificantOverlap) {
-      return { x, y, rotation };
-    }
-  }
-
-  return {
-    x: offsetX + Math.random() * virtualWidth,
-    y: offsetY + Math.random() * virtualHeight,
-    rotation: (Math.random() - 0.5) * 15,
-  };
-}
-
-/**
- * Props for the DraggableNote component
- */
-interface DraggableNoteProps {
-  /** The note data to display */
-  note: Note;
-  /** Position and rotation of the note */
-  position: { x: number; y: number; rotation: number };
-  /** Opacity for fade-in animation */
-  opacity: number;
-  /** Whether this note is currently selected */
-  isSelected: boolean;
-  /** Whether this note is currently hovered */
-  isHovered: boolean;
-  /** Callback when note is double-clicked */
-  onNoteClick: (note: Note) => void;
-  /** Callback when mouse enters the note */
-  onMouseEnter: () => void;
-  /** Callback when mouse leaves the note */
-  onMouseLeave: () => void;
-  /** Current canvas zoom scale */
-  canvasScale: number;
-  /** Whether this note is currently being dragged */
-  isDragging: boolean;
-  /** Base z-index for this note (incremented when dragged) */
-  zIndex: number;
-}
-
-/**
- * Individual draggable note component
- * Renders a sticky note with header (draggable) and content (editable)
- * Uses @dnd-kit's useDraggable hook for drag functionality
- * 
- * Interaction Zones:
- * - Header: Draggable area (grab cursor)
- * - Content: Double-click to edit, single-click to select text
- * 
- * Visual States:
- * - Normal: Standard shadow and opacity
- * - Hovered: Slight scale up (1.03x) and blue border highlight
- * - Selected: Stronger blue border highlight
- * - Dragging: Higher z-index and no transitions
- */
-function DraggableNote({
-  note,
-  position,
-  opacity,
-  isSelected,
-  isHovered,
-  onNoteClick,
-  onMouseEnter,
-  onMouseLeave,
-  canvasScale,
-  isDragging,
-  zIndex,
-}: DraggableNoteProps) {
-  const colors = useMemo(() => getNoteColor(note.color), [note.color]);
-  const headerColor = useMemo(() => darkenColor(colors.header, 20), [colors.header]);
-  const authorName = useMemo(() => note.user.username ? `-${note.user.username}` : '', [note.user.username]);
-  const dimensions = useMemo(() => calculateNoteDimensions(note.content, !!authorName), [note.content, authorName]);
-  
-  const scale = isHovered ? 1.03 : 1;
-  const scaleOffsetX = ((scale - 1) * NOTE_WIDTH) / 2;
-  const scaleOffsetY = ((scale - 1) * dimensions.noteHeight) / 2;
-
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({
-    id: note.id,
-  });
-
-  /**
-   * Convert drag offset from screen coordinates to world coordinates
-   * 
-   * @dnd-kit's transform is in screen pixels (viewport coordinates).
-   * Since the canvas has a CSS transform scale(canvasScale) applied,
-   * we need to divide by canvasScale to convert screen pixels to world pixels.
-   * 
-   * Example: If canvasScale = 0.5 (zoomed out 50%):
-   * - 10 screen pixels = 20 world pixels (10 / 0.5 = 20)
-   * - This ensures the note moves the correct distance in world space
-   */
-  const dragOffset = transform
-    ? {
-        x: transform.x / canvasScale,
-        y: transform.y / canvasScale,
-      }
-    : { x: 0, y: 0 };
-  
-  const noteStyle: React.CSSProperties = {
-    position: 'absolute',
-    left: `${position.x - scaleOffsetX + dragOffset.x}px`,
-    top: `${position.y - scaleOffsetY + dragOffset.y}px`,
-    width: `${NOTE_WIDTH}px`,
-    height: `${dimensions.noteHeight}px`,
-    transform: `rotate(${position.rotation}deg) scale(${scale})`,
-    opacity,
-    cursor: isDragging ? 'grabbing' : 'default',
-    zIndex: isDragging ? zIndex + 1000 : zIndex,
-    transition: isDragging ? 'none' : 'transform 0.2s ease, opacity 0.2s ease, left 0s, top 0s',
-    willChange: isDragging ? 'transform' : 'auto',
-  };
-
-  const handleContentDoubleClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!isDragging) {
-      onNoteClick(note);
-    }
-  }, [note, onNoteClick, isDragging]);
-
-  const handleHeaderMouseDown = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-  }, []);
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={noteStyle}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      <div
-        style={{
-          position: 'relative',
-          width: '100%',
-          height: '100%',
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            backgroundColor: colors.main,
-            border: '1px solid rgba(0, 0, 0, 0.57)',
-            boxShadow: isHovered || isSelected
-              ? '4px 10px 16px rgba(59, 130, 246, 0.3)'
-              : '4px 10px 12px rgba(0, 0, 0, 0.25)',
-          }}
-        />
-        <div
-          {...attributes}
-          {...listeners}
-          onMouseDown={handleHeaderMouseDown}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: `${HEADER_HEIGHT}px`,
-            backgroundColor: headerColor,
-            borderBottom: '1px solid rgba(0, 0, 0, 0.57)',
-            cursor: 'grab',
-          }}
-        />
-        {(isHovered || isSelected) && (
-          <div
-            style={{
-              position: 'absolute',
-              top: `${HEADER_HEIGHT}px`,
-              left: 0,
-              width: '100%',
-              height: `${dimensions.noteHeight - HEADER_HEIGHT}px`,
-              border: `${isSelected ? 2.5 : 2}px solid ${isSelected ? 'rgba(59, 130, 246, 0.9)' : 'rgba(59, 130, 246, 0.6)'}`,
-              pointerEvents: 'none',
-            }}
-          />
-        )}
-        <div
-          onDoubleClick={handleContentDoubleClick}
-          style={{
-            position: 'absolute',
-            top: `${HEADER_HEIGHT}px`,
-            left: 0,
-            width: '100%',
-            height: `${dimensions.noteHeight - HEADER_HEIGHT}px`,
-            padding: `${TEXT_PADDING}px`,
-            overflow: 'hidden',
-            cursor: 'text',
-            userSelect: 'text',
-            WebkitUserSelect: 'text',
-          }}
-        >
-          <div
-            style={{
-              width: '100%',
-              height: `${dimensions.noteHeight - HEADER_HEIGHT - dimensions.authorHeight - TEXT_PADDING * 2}px`,
-              overflow: 'hidden',
-              fontFamily: 'Caveat, cursive',
-              fontSize: `${FONT_SIZE}px`,
-              lineHeight: LINE_HEIGHT,
-              color: '#171c28',
-              wordWrap: 'break-word',
-              userSelect: 'text',
-              WebkitUserSelect: 'text',
-            }}
-          >
-            {note.content}
-          </div>
-          {authorName && (
-            <div
-              style={{
-                position: 'absolute',
-                bottom: `${TEXT_PADDING}px`,
-                left: `${TEXT_PADDING}px`,
-                fontFamily: 'Caveat, cursive',
-                fontSize: `${FONT_SIZE}px`,
-                color: '#171c28',
-              }}
-            >
-              {authorName}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Memoized version of DraggableNote to prevent unnecessary re-renders
- * Only re-renders when relevant props change
- */
-const DraggableNoteMemo = memo(DraggableNote, (prevProps, nextProps) => {
-  return (
-    prevProps.note.id === nextProps.note.id &&
-    prevProps.note.content === nextProps.note.content &&
-    prevProps.note.color === nextProps.note.color &&
-    prevProps.position.x === nextProps.position.x &&
-    prevProps.position.y === nextProps.position.y &&
-    prevProps.position.rotation === nextProps.position.rotation &&
-    prevProps.opacity === nextProps.opacity &&
-    prevProps.isSelected === nextProps.isSelected &&
-    prevProps.isHovered === nextProps.isHovered &&
-    prevProps.isDragging === nextProps.isDragging &&
-    prevProps.zIndex === nextProps.zIndex &&
-    prevProps.canvasScale === nextProps.canvasScale
-  );
-});
 
 /**
  * Main canvas component for rendering and interacting with sticky notes
@@ -462,7 +70,7 @@ const DraggableNoteMemo = memo(DraggableNote, (prevProps, nextProps) => {
  * @param props - Component props
  * @returns JSX element
  */
-export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanvasProps) {
+export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey }: DndCanvasProps) {
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [notes, setNotes] = useState<Note[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -669,6 +277,18 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
       }
     };
   }, [containerSize.width, containerSize.height]);
+
+  /**
+   * Handles note click (single-click) to open view modal
+   */
+  const handleNoteView = useCallback(
+    (note: Note) => {
+      if (onNoteView) {
+        onNoteView(note);
+      }
+    },
+    [onNoteView],
+  );
 
   /**
    * Handles note click (double-click) to open editor
@@ -997,7 +617,7 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
       if (!position) return true;
 
       const noteRight = position.x + NOTE_WIDTH;
-      const noteBottom = position.y + MAX_NOTE_HEIGHT;
+      const noteBottom = position.y + NOTE_HEIGHT;
 
       return (
         position.x < paddedRight &&
@@ -1084,7 +704,7 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
             const hoverHandlers = createHoverHandlers(note.id);
 
             return (
-              <DraggableNoteMemo
+              <DraggableNote
                 key={note.id}
                 note={note}
                 position={position}
@@ -1092,6 +712,7 @@ export function DndCanvas({ onNoteSelect, selectedNoteId, refreshKey }: DndCanva
                 isSelected={isSelected}
                 isHovered={isHovered}
                 onNoteClick={handleNoteClick}
+                onNoteView={handleNoteView}
                 onMouseEnter={hoverHandlers.onMouseEnter}
                 onMouseLeave={hoverHandlers.onMouseLeave}
                 canvasScale={canvasScale}

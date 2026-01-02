@@ -4,21 +4,34 @@
  * @fileoverview Note Editor Component
  * 
  * Modal component for editing existing notes.
- * Allows users to update note content and color.
- * Includes delete functionality with confirmation.
+ * Matches Figma design with note preview and color picker.
  * 
  * Features:
  * - Content editing with character limit (5000 chars)
+ * - Live note preview matching canvas appearance
  * - Color selection from 8 pastel colors
- * - Delete confirmation dialog
+ * - Delete functionality with confirmation
+ * - Three action buttons: Close, Attach File, Save
  * - Authorization checks (users can only edit their own notes)
- * - Translucent modal background matching auth modal style
  * 
  * @module components/ui/note-editor
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { useAuth } from '@/components/providers/auth-provider';
+import { DeletePromptModal } from './delete-prompt-modal';
+import { API_URL } from '@/lib/api-config';
+import {
+  NOTE_WIDTH,
+  NOTE_HEIGHT,
+  HEADER_HEIGHT,
+  TEXT_PADDING,
+  FONT_SIZE,
+  LINE_HEIGHT,
+  AUTHOR_FONT_SIZE,
+  getNoteColor,
+  darkenColor,
+} from '@/lib/note-utils';
 
 /**
  * Note data structure
@@ -53,8 +66,6 @@ interface NoteEditorProps {
   onNoteDeleted: () => void;
 }
 
-import { API_URL } from '@/lib/api-config';
-
 /** Maximum content length to prevent abuse */
 const MAX_CONTENT_LENGTH = 5000;
 
@@ -62,27 +73,27 @@ const MAX_CONTENT_LENGTH = 5000;
  * Available pastel colors for notes
  */
 const PASTEL_COLORS = [
-  { name: 'Apple', value: '#eebea8', header: '#ebae95' },
-  { name: 'Blue', value: '#aad1fa', header: '#95c8f6' },
-  { name: 'Orange', value: '#f6cca4', header: '#f4c08d' },
-  { name: 'Sun', value: '#eeddb1', header: '#ead6a1' },
   { name: 'Yellow', value: '#faefad', header: '#f9ef99' },
+  { name: 'Sun', value: '#eeddb1', header: '#ead6a1' },
+  { name: 'Orange', value: '#f6cca4', header: '#f4c08d' },
   { name: 'Choco', value: '#ccaf9d', header: '#caa88f' },
+  { name: 'Apple', value: '#eebea8', header: '#ebae95' },
   { name: 'Teal', value: '#bbfce6', header: '#a9fce0' },
+  { name: 'Blue', value: '#aad1fa', header: '#95c8f6' },
   { name: 'Purple', value: '#b3b0f7', header: '#9f9bf8' },
 ];
 
+
 /**
  * Note editor component
- * Provides UI for editing note content and color
- * Handles update and delete operations with proper authorization
  */
-export function NoteEditor({ note, onClose, onNoteUpdated, onNoteDeleted }: NoteEditorProps) {
+function NoteEditorComponent({ note, onClose, onNoteUpdated, onNoteDeleted }: NoteEditorProps) {
   const [content, setContent] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showDeletePrompt, setShowDeletePrompt] = useState(false);
+  const [previewSize, setPreviewSize] = useState({ width: NOTE_WIDTH, height: NOTE_HEIGHT });
   const { token, user } = useAuth();
 
   useEffect(() => {
@@ -92,13 +103,26 @@ export function NoteEditor({ note, onClose, onNoteUpdated, onNoteDeleted }: Note
     }
   }, [note]);
 
-  if (!note) return null;
+  useEffect(() => {
+    const updatePreviewSize = () => {
+      const maxSize = Math.min(NOTE_WIDTH, window.innerWidth * 0.7);
+      setPreviewSize({
+        width: Math.max(200, maxSize),
+        height: Math.max(200, maxSize),
+      });
+    };
+    updatePreviewSize();
+    window.addEventListener('resize', updatePreviewSize);
+    return () => window.removeEventListener('resize', updatePreviewSize);
+  }, []);
 
-  const canEdit = user?.id === note.userId || user?.isAdmin;
-  const canDelete = user?.id === note.userId || user?.isAdmin;
+  const canEdit = useMemo(() => user?.id === note?.userId || user?.isAdmin, [user, note]);
+  const colors = useMemo(() => getNoteColor(selectedColor), [selectedColor]);
+  const headerColor = useMemo(() => darkenColor(colors.header, 20), [colors.header]);
+  const authorName = useMemo(() => note?.user.username ? `-${note.user.username}` : '', [note?.user.username]);
 
-  const handleUpdate = async () => {
-    if (!content.trim() || !token) return;
+  const handleUpdate = useCallback(async () => {
+    if (!note || !content.trim() || !token) return;
 
     setIsUpdating(true);
     try {
@@ -126,10 +150,10 @@ export function NoteEditor({ note, onClose, onNoteUpdated, onNoteDeleted }: Note
     } finally {
       setIsUpdating(false);
     }
-  };
+  }, [content, selectedColor, token, note, onNoteUpdated, onClose]);
 
-  const handleDelete = async () => {
-    if (!token) return;
+  const handleDelete = useCallback(async () => {
+    if (!note || !token) return;
 
     setIsDeleting(true);
     try {
@@ -151,131 +175,239 @@ export function NoteEditor({ note, onClose, onNoteUpdated, onNoteDeleted }: Note
       alert('Failed to delete note. Please try again.');
     } finally {
       setIsDeleting(false);
-      setShowDeleteConfirm(false);
+      setShowDeletePrompt(false);
     }
-  };
+  }, [token, note, onNoteDeleted, onClose]);
+
+  const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  }, [onClose]);
+
+  const handleAttachFile = useCallback(() => {
+    // WIP - placeholder for attachment functionality
+    console.log('Attachment functionality coming soon');
+  }, []);
+
+  if (!note) return null;
 
   return (
     <div
-      className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 backdrop-blur-sm transition-opacity"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
-      }}
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-30 backdrop-blur-sm transition-opacity p-4"
+      onClick={handleBackdropClick}
     >
-      <div className="bg-[#fdfef0] border-2 border-[#b2a7d1] rounded-[15px] shadow-xl p-6 w-full max-w-md animate-fade-in" style={{ fontFamily: 'Caveat, cursive' }}>
-        <h2 className="text-2xl font-bold mb-4 text-[#37226f]">Edit Note</h2>
+      <div 
+        className="bg-white border-2 border-[#b2a7d1] rounded-[15px] shadow-xl p-3 md:p-6 w-full max-w-md md:max-w-lg animate-fade-in" 
+        style={{ fontFamily: 'Caveat, cursive', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-3xl md:text-5xl lg:text-6xl font-bold mb-3 md:mb-4 text-[#37226f] shrink-0" style={{ lineHeight: '1.2' }}>
+          Edit Note
+        </h2>
 
         {!canEdit && (
-          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
+          <div className="mb-3 p-2 md:p-3 bg-yellow-50 border border-yellow-200 rounded-md text-xs md:text-sm text-yellow-800 shrink-0">
             You can only view this note. Only the owner can edit it.
           </div>
         )}
 
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Content</label>
-          <textarea
-            value={content}
-            onChange={(e) => {
-              if (e.target.value.length <= MAX_CONTENT_LENGTH) {
-                setContent(e.target.value);
-              }
-            }}
-            maxLength={MAX_CONTENT_LENGTH}
-            placeholder="Write your note here..."
-            className="w-full px-3 py-2 border-2 border-[#b2a7d1] rounded-[15px] bg-white focus:outline-none focus:ring-2 focus:ring-[#b2a7d1] resize-none text-[#171c28]"
-            style={{ fontFamily: 'Caveat, cursive', fontSize: '16px' }}
-            rows={6}
-            disabled={!canEdit}
-          />
-          <div className="mt-1 text-right text-xs text-gray-500" style={{ fontFamily: 'Caveat, cursive' }}>
-            {content.length} / {MAX_CONTENT_LENGTH} characters
-            {content.length > MAX_CONTENT_LENGTH * 0.9 && (
-              <span className="text-orange-600 ml-2">Approaching limit</span>
-            )}
+        {/* Content Input */}
+        {canEdit && (
+          <div className="mb-3 md:mb-4 shrink-0">
+            <textarea
+              value={content}
+              onChange={(e) => {
+                if (e.target.value.length <= MAX_CONTENT_LENGTH) {
+                  setContent(e.target.value);
+                }
+              }}
+              maxLength={MAX_CONTENT_LENGTH}
+              placeholder="Write your note here..."
+              className="w-full px-2 md:px-3 py-1.5 md:py-2 border-2 border-[#b2a7d1] rounded-[15px] bg-white focus:outline-none focus:ring-2 focus:ring-[#b2a7d1] resize-none text-[#171c28]"
+              style={{ fontFamily: 'Caveat, cursive', fontSize: '14px', lineHeight: '1.4' }}
+              rows={3}
+            />
+            <div className="mt-1 text-right text-xs text-gray-500" style={{ fontFamily: 'Caveat, cursive' }}>
+              {content.length} / {MAX_CONTENT_LENGTH} characters
+            </div>
+          </div>
+        )}
+
+        {/* Note Preview - Scrollable */}
+        <div className="mb-3 md:mb-4 flex justify-center flex-1 min-h-0 overflow-hidden">
+          <div className="overflow-auto scrollbar-hide" style={{ maxHeight: '100%', maxWidth: '100%' }}>
+            <div
+              style={{
+                position: 'relative',
+                width: `${previewSize.width}px`,
+                height: `${previewSize.height}px`,
+                minWidth: '200px',
+                minHeight: '200px',
+              }}
+            >
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                backgroundColor: colors.main,
+                border: '1px solid rgba(0, 0, 0, 0.57)',
+                boxShadow: '4px 10px 16px rgba(0, 0, 0, 0.3)',
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: `${(HEADER_HEIGHT / NOTE_HEIGHT) * previewSize.height}px`,
+                backgroundColor: headerColor,
+                borderBottom: '1px solid rgba(0, 0, 0, 0.57)',
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                top: `${(HEADER_HEIGHT / NOTE_HEIGHT) * previewSize.height}px`,
+                left: 0,
+                width: '100%',
+                height: `${previewSize.height - (HEADER_HEIGHT / NOTE_HEIGHT) * previewSize.height}px`,
+                padding: `${TEXT_PADDING}px`,
+                overflow: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+              className="scrollbar-hide"
+            >
+              <div
+                style={{
+                  width: '100%',
+                  flex: 1,
+                  fontFamily: 'Caveat, cursive',
+                  fontSize: `${FONT_SIZE}px`,
+                  lineHeight: LINE_HEIGHT,
+                  color: '#37226f',
+                  wordWrap: 'break-word',
+                }}
+              >
+                {content || 'Sample text'}
+              </div>
+              {authorName && (
+                <div
+                  style={{
+                    fontFamily: 'Caveat, cursive',
+                    fontSize: `${AUTHOR_FONT_SIZE}px`,
+                    color: '#37226f',
+                    marginTop: 'auto',
+                    flexShrink: 0,
+                  }}
+                >
+                  {authorName}
+                </div>
+              )}
+            </div>
+          </div>
           </div>
         </div>
 
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
-          <div className="flex flex-wrap gap-2">
+        {/* Color Picker */}
+        <div className="mb-3 md:mb-4 flex justify-center shrink-0">
+          <div className="flex gap-3 md:gap-4 flex-wrap justify-center">
             {PASTEL_COLORS.map((color) => (
               <button
                 key={color.value}
                 onClick={() => canEdit && setSelectedColor(color.value)}
                 disabled={!canEdit}
-                className={`w-10 h-10 rounded-full border-2 transition-all duration-200 ${
-                  selectedColor === color.value
-                    ? 'border-[#171c28] scale-110 shadow-md'
-                    : 'border-gray-300 hover:border-gray-500 hover:scale-105'
-                } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
-                style={{ backgroundColor: color.value }}
+                className="w-7 h-7 md:w-[31px] md:h-[31px] rounded-full border-2 transition-all duration-200 hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  backgroundColor: color.value,
+                  borderColor: '#6750a4',
+                  borderWidth: '2px',
+                }}
                 aria-label={`Select ${color.name} color`}
               />
             ))}
           </div>
         </div>
 
-        {showDeleteConfirm ? (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
-            <p className="text-sm text-red-800 mb-3">
-              Are you sure you want to delete this note? This action cannot be undone.
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="px-3 py-1 text-sm text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
-                disabled={isDeleting}
+        {/* Action Buttons */}
+        <div className="flex gap-2 md:gap-3 items-center shrink-0">
+          <button
+            onClick={onClose}
+            className="bg-white border-2 border-[#b2a7d1] rounded-[15px] px-2 md:px-3 py-1.5 md:py-2 shadow-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center"
+            style={{ fontFamily: 'Caveat, cursive', fontSize: '12px', minWidth: '80px', minHeight: '36px' }}
+            disabled={isUpdating || isDeleting}
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-[#37226f]"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+          <button
+            onClick={handleAttachFile}
+            className="bg-white border-2 border-[#b2a7d1] rounded-[15px] px-2 md:px-3 py-1.5 md:py-2 shadow-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center"
+            style={{ fontFamily: 'Caveat, cursive', fontSize: '12px', minWidth: '80px', minHeight: '36px' }}
+            disabled={isUpdating || isDeleting || !canEdit}
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-[#37226f]"
+            >
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
+          </button>
+          {canEdit && (
+            <button
+              onClick={handleUpdate}
+              disabled={!content.trim() || isUpdating || isDeleting}
+              className="flex-1 bg-[#eaddff] border-2 border-[#b2a7d1] rounded-[15px] px-2 md:px-3 py-1.5 md:py-2 shadow-lg hover:shadow-xl transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1 md:gap-2"
+              style={{ fontFamily: 'Caveat, cursive', fontSize: '12px', minHeight: '36px' }}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-[#37226f]"
               >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                {isDeleting ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex gap-3 justify-between">
-            <div>
-              {canDelete && (
-                <button
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="px-4 py-2 text-red-600 bg-red-50 rounded-md hover:bg-red-100 transition-colors"
-                  disabled={isUpdating || isDeleting}
-                >
-                  Delete
-                </button>
-              )}
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-[15px] hover:bg-gray-200 transition-colors"
-                style={{ fontFamily: 'Caveat, cursive', fontSize: '14px' }}
-                disabled={isUpdating || isDeleting}
-              >
-                Cancel
-              </button>
-              {canEdit && (
-                <button
-                  onClick={handleUpdate}
-                  disabled={!content.trim() || isUpdating || isDeleting}
-                  className="px-4 py-2 bg-[#eaddff] border-2 border-[#b2a7d1] text-[#37226f] rounded-[15px] hover:bg-[#d4b5ff] disabled:opacity-50 disabled:cursor-not-allowed transition-all font-bold"
-                  style={{ fontFamily: 'Caveat, cursive', fontSize: '14px', lineHeight: '19.306px' }}
-                >
-                  {isUpdating ? 'Updating...' : 'Save'}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              <span>{isUpdating ? 'Updating...' : 'Save'}</span>
+            </button>
+          )}
+        </div>
       </div>
+
+      <DeletePromptModal
+        isOpen={showDeletePrompt}
+        onConfirm={handleDelete}
+        onCancel={() => setShowDeletePrompt(false)}
+      />
     </div>
   );
 }
 
+export const NoteEditor = memo(NoteEditorComponent);

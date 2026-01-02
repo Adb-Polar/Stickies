@@ -9,22 +9,29 @@ Stickies is an interactive bulletin board where users can create, edit, and dele
 - **Interactive Canvas**: Pan and zoom functionality with HTML/CSS and @dnd-kit
 - **Drag and Drop**: Smooth note dragging with @dnd-kit for optimal performance
 - **Note Management**: Create, edit, delete notes with color customization
+- **Note Viewing**: Detailed note view modal with floating action buttons
 - **User Authentication**: JWT-based auth with user profiles
 - **Real-time Updates**: Socket.io for live collaboration
 - **Performance Optimized**: Viewport culling, memoization, direct DOM manipulation, and efficient rendering
 - **Mobile Support**: Touch gestures for pan and zoom with smooth performance
+- **Responsive Design**: Mobile-first design with Figma-based UI components
 - **Security**: Input validation, authorization checks, SQL injection protection
+- **Modular Architecture**: Shared utilities and reusable components
 
 ### Key Features
 
 - **Note CRUD Operations**: Create, Read, Update, Delete notes with full authorization
+- **Note Viewing**: Single-click to view notes in detail modal with slide-up animation
 - **Color Customization**: 8 pastel colors to choose from
 - **User Authorization**: Users can only edit/delete their own notes
 - **Admin Privileges**: Admins can delete any note
 - **Position Persistence**: Notes maintain positions across sessions
-- **Text Selection**: Double-click to edit, single-click to select and copy text
+- **Text Selection**: Double-click to edit, single-click to view/select text
 - **Elevated Notes**: Dragged notes stay on top for better visibility
 - **Smooth Interactions**: Optimized for mobile with hundreds of notes
+- **Bottom Navigation**: Main navigation bar with profile, actions, and add note buttons
+- **Figma Design System**: All modals and UI components match Figma designs
+- **Responsive Modals**: Mobile and desktop optimized modal sizes
 
 ### Performance Features
 
@@ -459,18 +466,27 @@ npm run prisma:migrate
 stickies/
 ├── app/                    # Next.js app directory
 │   ├── layout.tsx         # Root layout
-│   └── page.tsx           # Home page (orchestrates app)
+│   ├── page.tsx           # Home page (orchestrates app)
+│   └── globals.css        # Global styles and animations
 ├── components/            # React components
 │   ├── hooks/             # Custom React hooks
 │   │   └── use-socket.ts  # Socket.io client hook
 │   ├── providers/         # React context providers
 │   │   └── auth-provider.tsx  # Authentication context
 │   └── ui/                # UI components
-│       ├── dnd-canvas.tsx # Main canvas component (drag, pan, zoom)
-│       ├── note-creator.tsx # Note creation modal
-│       ├── note-editor.tsx   # Note editing modal
-│       ├── auth-form.tsx     # Login/signup form
-│       └── sticky-note.tsx    # Legacy component (unused)
+│       ├── dnd-canvas.tsx      # Main canvas component (drag, pan, zoom)
+│       ├── draggable-note.tsx  # Individual draggable note component
+│       ├── note-creator.tsx    # Note creation modal
+│       ├── note-editor.tsx     # Note editing modal
+│       ├── note-view.tsx       # Note viewing modal
+│       ├── auth-form.tsx       # Login/signup form
+│       ├── bottom-nav.tsx      # Bottom navigation bar
+│       ├── profile-modal.tsx   # User profile modal
+│       ├── delete-prompt-modal.tsx  # Delete confirmation modal
+│       └── sticky-note.tsx     # Legacy component (unused)
+├── lib/                   # Shared utilities
+│   ├── api-config.ts      # API configuration
+│   └── note-utils.ts      # Note utilities (colors, constants, positioning)
 ├── server/                # Express backend
 │   ├── config/            # Configuration
 │   │   ├── database.ts    # Prisma client
@@ -546,6 +562,7 @@ The application follows a **component-based architecture** with clear separation
 - **Pan & Zoom**: Mouse wheel zoom, touch pinch zoom, mouse/touch panning
 - **Viewport Culling**: Only renders notes visible in viewport for performance
 - **Z-index Management**: Incremental counter system for dragged notes
+- **Note Interactions**: Single-click to view, double-click to edit
 
 **Performance Optimizations**:
 - **Direct DOM Manipulation**: During pan/zoom gestures, transforms are applied directly to DOM (bypasses React render cycle) for 60fps performance
@@ -566,16 +583,18 @@ The application follows a **component-based architecture** with clear separation
 - `handleDragEnd`: Updates note position and assigns new z-index
 - `handleCanvasWheel`: Handles mouse wheel zoom (centered on cursor)
 - `handleCanvasTouchMove`: Handles touch pan and pinch zoom (direct DOM manipulation)
-- `calculateNoteDimensions`: Calculates note height based on content length
+- `handleNoteClick`: Handles double-click for editing
+- `handleNoteView`: Handles single-click for viewing
 
 **Interaction Zones**:
 - **Header**: Draggable area (grab cursor)
-- **Content**: Double-click to edit, single-click to select text
+- **Content**: Double-click to edit, single-click to view/select text
 
 **Example Usage**:
 ```typescript
 <DndCanvas
   onNoteSelect={(note) => setSelectedNote(note)}
+  onNoteView={(note) => setViewedNote(note)}
   selectedNoteId={selectedNoteId}
   refreshKey={refreshKey}
 />
@@ -583,19 +602,50 @@ The application follows a **component-based architecture** with clear separation
 
 ---
 
+#### 2a. `components/ui/draggable-note.tsx` - Draggable Note Component
+
+**Purpose**: Individual draggable note component extracted from `dnd-canvas.tsx` for better modularity.
+
+**Key Features**:
+- **Drag Functionality**: Uses `@dnd-kit/core`'s `useDraggable` hook
+- **Visual States**: Normal, hovered, selected, dragging states
+- **Coordinate Conversion**: Converts screen coordinates to world coordinates for proper dragging
+- **Memoization**: Optimized with `React.memo` and custom comparison function
+
+**Interaction Zones**:
+- **Header**: Draggable area (grab cursor)
+- **Content**: Double-click to edit, single-click to view/select text
+
+---
+
+#### 2b. `lib/note-utils.ts` - Note Utilities
+
+**Purpose**: Shared utilities for note rendering, colors, and positioning.
+
+**Exports**:
+- **Constants**: `NOTE_WIDTH`, `NOTE_HEIGHT`, `HEADER_HEIGHT`, `TEXT_PADDING`, `FONT_SIZE`, `LINE_HEIGHT`, `AUTHOR_FONT_SIZE`
+- **Color Functions**: `getNoteColor()`, `darkenColor()`
+- **Positioning**: `getNotePosition()` - Calculates non-overlapping positions for new notes
+
+**Usage**: Imported by all note-related components to ensure consistency.
+
+---
+
 #### 3. `components/ui/note-creator.tsx` - Note Creation Modal
 
-**Purpose**: Provides UI for creating new notes with a floating action button (FAB).
+**Purpose**: Provides UI for creating new notes matching Figma design.
 
 **Features**:
-- FAB button in bottom-right corner
-- Modal with content input and color picker
-- Keyboard shortcut: 'N' key to open
-- Character limit: 5000 characters
-- Translucent modal background
+- Modal with "Add Note" title (64px, responsive)
+- Content textarea with character limit (5000 chars)
+- Live note preview with current color and content
+- Circular color picker buttons (31x31px) with purple borders
+- Three action buttons: Close, Attach File (WIP), Add
+- Responsive sizing for mobile and desktop
+- Scrollable note preview (modal itself not scrollable)
+- Translucent modal background with backdrop blur
 
 **Key State**:
-- `isOpen`: Controls modal visibility
 - `content`: Note content text
 - `selectedColor`: Selected color from palette
 
@@ -607,29 +657,113 @@ Body: { content, color, width, height, x, y }
 
 ---
 
-#### 4. `components/ui/note-editor.tsx` - Note Editing Modal
+#### 3a. `components/ui/note-view.tsx` - Note View Modal
 
-**Purpose**: Provides UI for editing existing notes (content and color) and deleting notes.
+**Purpose**: Modal for viewing notes in detail with floating action buttons.
 
 **Features**:
-- Content editing with character limit
-- Color selection from 8 pastel colors
-- Delete button with confirmation dialog
+- Slide-up animation from bottom
+- Note displayed with same styling as canvas (color, rotation)
+- Responsive scaling (1.5x mobile, 2.2x desktop)
+- Floating action buttons: Delete, Edit, Reply (WIP)
+- Authorization checks (buttons only visible to authenticated users)
+- Integrated delete prompt modal
+- Scrollable note content area
+
+**Key State**:
+- `scale`: Responsive scale based on viewport width
+- `showDeletePrompt`: Controls delete confirmation modal
+
+**API Calls**:
+```typescript
+DELETE /api/notes/:id
+```
+
+---
+
+#### 4. `components/ui/note-editor.tsx` - Note Editing Modal
+
+**Purpose**: Provides UI for editing existing notes matching Figma design.
+
+**Features**:
+- Modal with "Edit Note" title (64px, responsive)
+- Content textarea with character limit (5000 chars)
+- Live note preview with author name
+- Circular color picker buttons (31x31px) with purple borders
+- Three action buttons: Close, Attach File (WIP), Save
 - Authorization checks (users can only edit their own notes, admins can edit any)
-- Translucent modal background
+- Responsive sizing for mobile and desktop
+- Scrollable note preview (modal itself not scrollable)
+- Translucent modal background with backdrop blur
 
 **Key State**:
 - `content`: Note content text
 - `selectedColor`: Selected color
-- `showDeleteConfirm`: Controls delete confirmation dialog
 
 **API Calls**:
 ```typescript
 PUT /api/notes/:id
 Body: { content, color }
-
-DELETE /api/notes/:id
 ```
+
+---
+
+#### 5. `components/ui/bottom-nav.tsx` - Bottom Navigation Bar
+
+**Purpose**: Main navigation bar at bottom center of screen.
+
+**Features**:
+- Fixed position at bottom center
+- Three buttons: Profile (left), Middle action (palm icon), Add Note (right)
+- Hides when modals are open (slide-down animation)
+- Responsive design for mobile and desktop
+- Only visible to authenticated users
+
+**Key Props**:
+- `onAddNote`: Opens note creator modal
+- `onProfile`: Opens profile modal
+- `onMiddleAction`: Placeholder for future functionality
+- `isHidden`: Controls visibility with animation
+
+---
+
+#### 6. `components/ui/profile-modal.tsx` - Profile Modal
+
+**Purpose**: Modal for viewing and editing user profile.
+
+**Features**:
+- "Profile" title (64px, Caveat Bold)
+- Username field with person icon
+- Bio field with comment icon
+- Responsive sizing
+- Translucent modal background
+
+---
+
+#### 7. `components/ui/delete-prompt-modal.tsx` - Delete Confirmation Modal
+
+**Purpose**: Modal for confirming note deletion.
+
+**Features**:
+- "Delete this note?" title (64px)
+- Warning message
+- Cancel and Confirm buttons with icons
+- Responsive sizing
+- Translucent modal background
+
+---
+
+#### 8. `components/ui/auth-form.tsx` - Authentication Form
+
+**Purpose**: Login and signup forms matching Figma design.
+
+**Features**:
+- Large titles (64px, Caveat Bold)
+- Login: Username (mapped to email) and Password fields
+- Signup: Username, Email, Password, Confirm password fields
+- Form validation
+- Responsive sizing
+- Translucent modal background
 
 ---
 
@@ -637,26 +771,39 @@ DELETE /api/notes/:id
 
 1. **Note Creation**:
    ```
-   User clicks FAB → NoteCreator opens → User enters content/color → 
+   User clicks Add Note button → NoteCreator opens → User enters content/color → 
    POST /api/notes → refreshKey++ → DndCanvas refetches notes
    ```
 
-2. **Note Editing**:
+2. **Note Viewing**:
+   ```
+   User single-clicks note → NoteView opens → User can view note details →
+   User clicks Edit → NoteEditor opens
+   User clicks Delete → DeletePromptModal opens → DELETE /api/notes/:id
+   ```
+
+3. **Note Editing**:
    ```
    User double-clicks note → NoteEditor opens → User edits → 
    PUT /api/notes/:id → refreshKey++ → DndCanvas refetches notes
    ```
 
-3. **Note Dragging**:
+4. **Note Dragging**:
    ```
    User drags note header → handleDragStart → handleDragEnd → 
    Update notePositions state → PUT /api/notes/:id (position update)
    ```
 
-4. **Canvas Pan/Zoom**:
+5. **Canvas Pan/Zoom**:
    ```
    User pans/zooms → Direct DOM manipulation (smooth) → 
    On gesture end → Sync refs to React state
+   ```
+
+6. **Modal Management**:
+   ```
+   Modal opens → BottomNav hides (slide-down) →
+   Modal closes → BottomNav shows (slide-up)
    ```
 
 ---
@@ -763,11 +910,20 @@ The application uses **Tailwind CSS** for styling with custom color values:
 
 - **Background**: `#fdfef0` (cream)
 - **Font**: `Caveat` (cursive handwriting style)
-- **Note Colors**: 8 pastel colors (see `NOTE_COLORS` in `dnd-canvas.tsx`)
+- **Note Colors**: 8 pastel colors (see `NOTE_COLORS` in `lib/note-utils.ts`)
 
 **Modal Styling**:
 - Translucent background: `bg-black/40` with `backdrop-blur-sm`
-- Consistent across auth, note creator, and note editor modals
+- Consistent across all modals (auth, note creator, note editor, note view, profile, delete prompt)
+- Responsive sizing with viewport awareness
+- Slide-up animations for note view modal
+- Scrollable content areas with invisible scrollbars
+
+**Design System**:
+- All modals match Figma designs
+- Consistent typography (64px titles, Caveat Bold)
+- Circular color picker buttons (31x31px) with purple borders
+- Three-button action layouts (Close, Action, Primary)
 
 ---
 
@@ -867,6 +1023,7 @@ Potential areas for enhancement:
 ## Tech Stack
 
 - **Frontend:** Next.js 16, React 19, **@dnd-kit**, Tailwind CSS
+- **Icons:** lucide-react (MIT licensed)
 - **Backend:** Node.js, Express.js, Socket.io
 - **Database:** PostgreSQL 16, Prisma ORM
 - **Caching:** Redis 7
@@ -874,6 +1031,7 @@ Potential areas for enhancement:
 - **Security:** Helmet, CORS
 - **Testing:** Jest, Supertest
 - **Drag & Drop:** @dnd-kit/core for performant drag-and-drop
+- **Architecture:** Modular design with shared utilities (`lib/note-utils.ts`)
 
 ---
 
