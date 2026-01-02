@@ -1,9 +1,12 @@
-import StickyCanvas from "@/components/common/droppable";
-
+import { Viewport } from "@/components/ui/viewport";
+import Canvas from "@/components/common/Canvas";
 export default function Home() {
   return (
     <div className="w-full h-dvh text-text">
-      <StickyCanvas/>
+    {/*No props coz i used Context clean shi*/}
+      <Viewport>
+        <Canvas/>
+      </Viewport>
     </div>
   );
 }

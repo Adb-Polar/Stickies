@@ -13,7 +13,7 @@ pnpm dev
 # or
 bun dev
 ```
-code to commit = "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"
+
 
 ## File Organization
 `app/` - Contains the routes/pages of the application

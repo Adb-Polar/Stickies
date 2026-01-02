@@ -1,34 +1,62 @@
+"use client";
 import { useDraggable } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
+import type { Note, Camera } from "../types/types";
 
-export interface Note {
-  id: string;
-  x: number;
-  y: number;
-  z: number;
-  textContent: string;
+// interface so we can easily pass NoteProps
+// typescript stuff dont worry abt this
+interface NoteProps {
+  noteData: Note;
+  cameraData: Camera;
 }
 
-export default function StickyNote(noteProps: Note) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: noteProps.id });
+// StickyNote component
+// noteData for note coordinates
+// cameraData for scaling and relative positioning
+export default function StickyNote({
+  noteData,
+  cameraData,
+}: NoteProps) {
+  // Dnd-kit things we need ts i js dk why
+  const { attributes, listeners, setNodeRef, transform } =
+    useDraggable({
+      id: noteData.id,
+    });
 
-  const style = {
-    transform: CSS.Translate.toString(transform),
-    left: noteProps.x,
-    top: noteProps.y,
-    zIndex: noteProps.z
+  // relative position calculations
+  // yeah math stuff fuck ts
+  const finalScreenX =
+    noteData.x * cameraData.zoom +
+    cameraData.x +
+    (transform ? transform.x : 0);
+  const finalScreenY =
+    noteData.y * cameraData.zoom +
+    cameraData.y +
+    (transform ? transform.y : 0);
+
+  // this is just CSSProperties
+  // set the location of the note on the canvas
+  const style: React.CSSProperties = {
+    left: 0,
+    top: 0,
+    transform: `translate3d(${finalScreenX}px, ${finalScreenY}px, 0) scale(${cameraData.zoom})`,
+    touchAction: "none",
   };
 
   return (
+    // the actual note is inside the div coz for some reason rotate css property breaks the position
     <div
+      className={`absolute`}
       ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className="absolute rotate-3 w-30 h-30 bg-maroon border-[0.5px] border-text/50 shadow-lg cursor-grab active:cursor-grabbing"
       style={style}
+      {...listeners}      {...attributes}
     >
-      <div className="w-full h-5 bg-maroon-dark border-b-[0.5px] border-text/50"></div>
-      <p className="px-2 pt-1">{noteProps.textContent}</p>
+      {/*we need to add dynamic width make some width and height variable im too lazy to do ts*/}
+      <div className="-rotate-2 w-[100px] h-[100px] border-text/60 bg-maroon shadow-lg border">
+        <div className="h-3 bg-maroon-dark border-b border-text/50"></div>
+        <p className="pt-1 px-2 text-[12px]">
+          {noteData.textContent}
+        </p>
+      </div>
     </div>
   );
 }
