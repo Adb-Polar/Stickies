@@ -118,7 +118,6 @@ async function startServer(): Promise<void> {
     await connectDatabase();
     await connectRedis();
     // Bind to 0.0.0.0 to allow network access (for mobile/remote devices)
-    // Bind to 0.0.0.0 to allow network access
     // In production, this should be behind a reverse proxy (nginx, etc.)
     const host = '0.0.0.0';
     httpServer.listen(PORT, host, () => {

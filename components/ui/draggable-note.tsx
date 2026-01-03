@@ -5,7 +5,7 @@
  * 
  * Individual draggable note component for the canvas.
  * Renders a sticky note with header (draggable) and content (editable).
- * Uses @dnd-kit's useDraggable hook for drag functionality.
+ * Uses custom drag handlers for drag functionality.
  * 
  * Interaction Zones:
  * - Header: Draggable area (grab cursor)
@@ -20,7 +20,7 @@
  * @module components/ui/draggable-note
  */
 
-import { useMemo, useCallback, memo } from 'react';
+import { useMemo, useCallback, memo, useRef } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import {
   NOTE_WIDTH,
@@ -83,6 +83,12 @@ export interface DraggableNoteProps {
   zIndex: number;
   /** Whether the canvas is currently being panned */
   isPanning?: boolean;
+  /** Callback when drag starts */
+  onDragStart?: (noteId: string, startX: number, startY: number) => void;
+  /** Callback during drag */
+  onDrag?: (noteId: string, deltaX: number, deltaY: number) => void;
+  /** Callback when drag ends */
+  onDragEnd?: (noteId: string) => void;
 }
 
 /**
@@ -233,9 +239,9 @@ function DraggableNoteComponent({
             padding: `${TEXT_PADDING}px`,
             overflow: 'hidden',
             cursor: 'text',
-            // Disable text selection when dragging or panning to prevent accidental highlighting
-            userSelect: isDragging || isPanning ? 'none' : 'text',
-            WebkitUserSelect: isDragging || isPanning ? 'none' : 'text',
+            // Disable text selection on canvas - only allow in note view modal
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
             display: 'flex',
             flexDirection: 'column',
           }}
@@ -250,9 +256,9 @@ function DraggableNoteComponent({
               lineHeight: LINE_HEIGHT,
               color: '#171c28',
               wordWrap: 'break-word',
-              // Disable text selection when dragging or panning to prevent accidental highlighting
-              userSelect: isDragging || isPanning ? 'none' : 'text',
-              WebkitUserSelect: isDragging || isPanning ? 'none' : 'text',
+              // Disable text selection on canvas - only allow in note view modal
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
               marginBottom: authorName ? `${TEXT_PADDING * 0.5}px` : 0,
             }}
           >

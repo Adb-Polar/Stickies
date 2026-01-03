@@ -127,7 +127,7 @@ function NoteViewComponent({ note, onClose, onEdit, onNoteDeleted }: NoteViewPro
   }, [token, note, onNoteDeleted, onClose]);
 
   const handleReply = useCallback(() => {
-    // WIP - placeholder for reply functionality
+    // Reply functionality to be implemented
   }, []);
 
   const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -215,6 +215,8 @@ function NoteViewComponent({ note, onClose, onEdit, onNoteDeleted }: NoteViewPro
                   marginBottom: authorName ? `${(TEXT_PADDING * 0.5 * scale)}px` : 0,
                   scrollbarWidth: 'none',
                   msOverflowStyle: 'none',
+                  userSelect: 'text',
+                  WebkitUserSelect: 'text',
                 }}
                 className="scrollbar-hide"
               >

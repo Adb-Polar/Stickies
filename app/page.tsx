@@ -153,7 +153,7 @@ function HomeContent() {
           onAddNote={() => setShowNoteCreator(true)}
           onProfile={() => setShowProfileModal(true)}
           onMiddleAction={() => {
-            // Placeholder for future feature
+            // Future feature placeholder
           }}
           isHidden={!!viewedNote || showNoteCreator || !!selectedNote}
         />

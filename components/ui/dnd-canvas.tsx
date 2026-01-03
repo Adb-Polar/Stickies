@@ -148,8 +148,8 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
           if (retryResponse.ok) {
             const retryData = await retryResponse.json();
             setNotes(retryData.notes || []);
-            setIsLoading(false);
-            return;
+          setIsLoading(false);
+          return;
           }
         }
         const errorText = await response.text();
@@ -455,9 +455,13 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
           canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${currentScale}, ${currentScale}, 1)`;
         }
         
-        // Update background position directly for smooth infinite tiling during pan
+        // Update background position and size directly for smooth infinite tiling during pan
         if (backgroundRef.current) {
+          const currentScale = canvasScaleRef.current;
           backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
+          // Scale background texture with zoom: when zoomed in 2x, texture appears smaller (more detail)
+          // Multiply by scale to make texture scale with zoom (larger scale = larger backgroundSize = smaller appearance)
+          backgroundRef.current.style.backgroundSize = `${100 * currentScale}%`;
         }
         
         // CRITICAL: Don't update state during move - only update refs and DOM
@@ -574,10 +578,13 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
         canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${clampedScale}, ${clampedScale}, 1)`;
       }
       
-      // Update background position directly for smooth infinite tiling during zoom
+      // Update background position and size directly for smooth infinite tiling during zoom
       // Use screen coordinates directly for consistent visual speed at all zoom levels
       if (backgroundRef.current) {
         backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
+        // Scale background texture with zoom: when zoomed in 2x, texture appears smaller (more detail)
+        // Multiply by scale to make texture scale with zoom (larger scale = larger backgroundSize = smaller appearance)
+        backgroundRef.current.style.backgroundSize = `${100 * clampedScale}%`;
       }
       
       // Update both states together (scale and position must update atomically)
@@ -709,10 +716,13 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
           // This bypasses React render cycle for smooth 60fps performance
           canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${clampedScale}, ${clampedScale}, 1)`;
           
-          // Update background position directly for smooth infinite tiling during pinch zoom
+          // Update background position and size directly for smooth infinite tiling during pinch zoom
           // Use screen coordinates directly for consistent visual speed at all zoom levels
           if (backgroundRef.current) {
             backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
+            // Scale background texture with zoom: when zoomed in 2x, texture appears smaller (more detail)
+            // Multiply by scale to make texture scale with zoom (larger scale = larger backgroundSize = smaller appearance)
+            backgroundRef.current.style.backgroundSize = `${100 * clampedScale}%`;
           }
         }
       } else {
@@ -747,9 +757,13 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
           canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${currentScale}, ${currentScale}, 1)`;
         }
         
-        // Update background position directly for smooth infinite tiling during pan
+        // Update background position and size directly for smooth infinite tiling during pan
         if (backgroundRef.current) {
+          const currentScale = canvasScaleRef.current;
           backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
+          // Scale background texture with zoom: when zoomed in 2x, texture appears smaller (more detail)
+          // Multiply by scale to make texture scale with zoom (larger scale = larger backgroundSize = smaller appearance)
+          backgroundRef.current.style.backgroundSize = `${100 * currentScale}%`;
         }
         
         // CRITICAL: Don't update state during move - only update refs and DOM
@@ -812,9 +826,10 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
       canvasRef.current.style.transform = `translate3d(${finalPos.x}px, ${finalPos.y}px, 0) scale3d(${finalScale}, ${finalScale}, 1)`;
     }
     
-    // Sync background position to match final state
+    // Sync background position and size to match final state
     if (backgroundRef.current) {
       backgroundRef.current.style.backgroundPosition = `${finalPos.x}px ${finalPos.y}px`;
+      backgroundRef.current.style.backgroundSize = `${100 * finalScale}%`;
     }
   }, [isPanning]);
 
@@ -948,9 +963,9 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
           // Position is updated directly via DOM during gestures for smooth 60fps performance
           backgroundImage: 'url(/watercolor-paper.webp)',
           backgroundRepeat: 'repeat',
-          // Keep background-size constant - pattern size stays the same regardless of zoom
-          // This ensures consistent visual appearance at all zoom levels
-          backgroundSize: 'auto',
+          // Scale background texture with zoom: when zoomed in 2x, texture appears smaller (more detail)
+          // Multiply by scale to make texture scale with zoom (larger scale = larger backgroundSize = smaller appearance)
+          backgroundSize: `${100 * canvasScale}%`,
           // Use screen coordinates directly for background position
           // This makes background move at consistent visual speed (screen pixels) at all zoom levels
           // The background moves with the canvas at the same screen-space speed regardless of zoom
