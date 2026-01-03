@@ -90,6 +90,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
   const zIndexCounterRef = useRef(100);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const backgroundRef = useRef<HTMLDivElement>(null);
   const initializedNotesRef = useRef<Set<string>>(new Set());
   const lastTouchDistance = useRef<number | null>(null);
   const panUpdateRef = useRef<number | null>(null);
@@ -454,6 +455,11 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
           canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${currentScale}, ${currentScale}, 1)`;
         }
         
+        // Update background position directly for smooth infinite tiling during pan
+        if (backgroundRef.current) {
+          backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
+        }
+        
         // CRITICAL: Don't update state during move - only update refs and DOM
         // State updates are queued and can fire after mouse up, causing teleport
         // We'll sync to state only on mouse up using flushSync
@@ -487,6 +493,11 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     if (canvasRef.current) {
       const finalScale = canvasScaleRef.current;
       canvasRef.current.style.transform = `translate3d(${finalPos.x}px, ${finalPos.y}px, 0) scale3d(${finalScale}, ${finalScale}, 1)`;
+    }
+    
+    // Sync background position to match final state
+    if (backgroundRef.current) {
+      backgroundRef.current.style.backgroundPosition = `${finalPos.x}px ${finalPos.y}px`;
     }
   }, []);
 
@@ -561,6 +572,12 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
       // Apply transform directly to DOM using transform3d for GPU acceleration
       if (canvasRef.current) {
         canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${clampedScale}, ${clampedScale}, 1)`;
+      }
+      
+      // Update background position directly for smooth infinite tiling during zoom
+      // Use screen coordinates directly for consistent visual speed at all zoom levels
+      if (backgroundRef.current) {
+        backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
       }
       
       // Update both states together (scale and position must update atomically)
@@ -691,6 +708,12 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
           // Apply transform directly to DOM using transform3d for GPU acceleration
           // This bypasses React render cycle for smooth 60fps performance
           canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${clampedScale}, ${clampedScale}, 1)`;
+          
+          // Update background position directly for smooth infinite tiling during pinch zoom
+          // Use screen coordinates directly for consistent visual speed at all zoom levels
+          if (backgroundRef.current) {
+            backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
+          }
         }
       } else {
         lastTouchDistance.current = distance;
@@ -722,6 +745,11 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
         if (canvasRef.current) {
           const currentScale = canvasScaleRef.current;
           canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${currentScale}, ${currentScale}, 1)`;
+        }
+        
+        // Update background position directly for smooth infinite tiling during pan
+        if (backgroundRef.current) {
+          backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
         }
         
         // CRITICAL: Don't update state during move - only update refs and DOM
@@ -782,6 +810,11 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     // This is a safety check in case React's render didn't apply it correctly
     if (canvasRef.current) {
       canvasRef.current.style.transform = `translate3d(${finalPos.x}px, ${finalPos.y}px, 0) scale3d(${finalScale}, ${finalScale}, 1)`;
+    }
+    
+    // Sync background position to match final state
+    if (backgroundRef.current) {
+      backgroundRef.current.style.backgroundPosition = `${finalPos.x}px ${finalPos.y}px`;
     }
   }, [isPanning]);
 
@@ -898,10 +931,42 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
       style={{ 
         cursor: isPanning ? 'move' : 'default', 
         touchAction: 'none', // Prevents browser touch gestures (pinch zoom, pan, etc.)
-        WebkitUserSelect: 'none', // Prevents text selection on touch
-        userSelect: 'none',
+        WebkitUserSelect: 'none', // Prevents text selection during panning
+        userSelect: 'none', // Prevents text selection during panning
+        WebkitTouchCallout: 'none', // Prevents iOS callout menu
       }}
     >
+      {/* Infinite tiled background texture layer - fixed position, updates background-position */}
+      {/* This approach is more performant: background is not transformed, only background-position updates */}
+      {/* Background position is calculated to move with canvas transform, creating infinite tiling effect */}
+      <div
+        ref={backgroundRef}
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          // Fixed position - covers entire container, doesn't transform
+          // Background position updates based on canvas transform to create infinite movement
+          // Position is updated directly via DOM during gestures for smooth 60fps performance
+          backgroundImage: 'url(/watercolor-paper.webp)',
+          backgroundRepeat: 'repeat',
+          // Keep background-size constant - pattern size stays the same regardless of zoom
+          // This ensures consistent visual appearance at all zoom levels
+          backgroundSize: 'auto',
+          // Use screen coordinates directly for background position
+          // This makes background move at consistent visual speed (screen pixels) at all zoom levels
+          // The background moves with the canvas at the same screen-space speed regardless of zoom
+          backgroundPosition: `${canvasPosition.x}px ${canvasPosition.y}px`,
+          // Use background-blend-mode to colorize white texture to match #fdfef0
+          // Multiply blend: white (1,1,1) * #fdfef0 = #fdfef0
+          // This is more performant than mix-blend-mode as it only affects the background
+          backgroundColor: '#fdfef0',
+          backgroundBlendMode: 'multiply',
+          // Ensure background is behind canvas and notes
+          zIndex: 0,
+          // GPU acceleration for smooth background-position updates
+          willChange: isPanning || activeId ? 'background-position' : 'auto',
+          backfaceVisibility: 'hidden',
+        }}
+      />
       <DndContext
         sensors={sensors}
         onDragStart={handleDragStart}
@@ -922,6 +987,11 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
             backfaceVisibility: 'hidden',
             // Force GPU layer creation for smoother animations
             WebkitTransform: `translate3d(${canvasPosition.x}px, ${canvasPosition.y}px, 0) scale3d(${canvasScale}, ${canvasScale}, 1)`,
+            // Ensure canvas is above background
+            zIndex: 1,
+            // Prevent text selection during panning
+            WebkitUserSelect: 'none',
+            userSelect: 'none',
           }}
         >
           {visibleNotes.map((note) => {
@@ -948,6 +1018,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
                 canvasScale={canvasScale}
                 isDragging={isDragging}
                 zIndex={noteZIndex}
+                isPanning={isPanning}
               />
             );
           })}

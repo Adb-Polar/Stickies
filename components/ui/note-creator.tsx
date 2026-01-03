@@ -69,9 +69,9 @@ function NoteCreatorComponent({ onNoteCreated, isOpen: externalIsOpen, onClose }
   const [isCreating, setIsCreating] = useState(false);
   const [previewSize, setPreviewSize] = useState({ width: NOTE_WIDTH, height: NOTE_HEIGHT });
   const { token } = useAuth();
-  
+
   const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
-  
+
   useEffect(() => {
     const updatePreviewSize = () => {
       const maxSize = Math.min(NOTE_WIDTH, window.innerWidth * 0.7);
@@ -144,7 +144,6 @@ function NoteCreatorComponent({ onNoteCreated, isOpen: externalIsOpen, onClose }
 
   const handleAttachFile = useCallback(() => {
     // WIP - placeholder for attachment functionality
-    console.log('Attachment functionality coming soon');
   }, []);
 
   if (!isOpen) {

@@ -81,6 +81,8 @@ export interface DraggableNoteProps {
   isDragging: boolean;
   /** Base z-index for this note (incremented when dragged) */
   zIndex: number;
+  /** Whether the canvas is currently being panned */
+  isPanning?: boolean;
 }
 
 /**
@@ -99,6 +101,7 @@ function DraggableNoteComponent({
   canvasScale,
   isDragging,
   zIndex,
+  isPanning = false,
 }: DraggableNoteProps) {
   const colors = useMemo(() => getNoteColor(note.color), [note.color]);
   const headerColor = useMemo(() => darkenColor(colors.header, 20), [colors.header]);
@@ -142,6 +145,9 @@ function DraggableNoteComponent({
     zIndex: isDragging ? zIndex + 1000 : zIndex,
     transition: isDragging ? 'none' : 'transform 0.2s ease, opacity 0.2s ease, left 0s, top 0s',
     willChange: isDragging ? 'transform' : 'auto',
+    // Prevent text selection when dragging or panning canvas
+    WebkitUserSelect: isDragging || isPanning ? 'none' : 'auto',
+    userSelect: isDragging || isPanning ? 'none' : 'auto',
   };
 
   const handleContentClick = useCallback((e: React.MouseEvent) => {
@@ -227,8 +233,9 @@ function DraggableNoteComponent({
             padding: `${TEXT_PADDING}px`,
             overflow: 'hidden',
             cursor: 'text',
-            userSelect: 'text',
-            WebkitUserSelect: 'text',
+            // Disable text selection when dragging or panning to prevent accidental highlighting
+            userSelect: isDragging || isPanning ? 'none' : 'text',
+            WebkitUserSelect: isDragging || isPanning ? 'none' : 'text',
             display: 'flex',
             flexDirection: 'column',
           }}
@@ -243,8 +250,9 @@ function DraggableNoteComponent({
               lineHeight: LINE_HEIGHT,
               color: '#171c28',
               wordWrap: 'break-word',
-              userSelect: 'text',
-              WebkitUserSelect: 'text',
+              // Disable text selection when dragging or panning to prevent accidental highlighting
+              userSelect: isDragging || isPanning ? 'none' : 'text',
+              WebkitUserSelect: isDragging || isPanning ? 'none' : 'text',
               marginBottom: authorName ? `${TEXT_PADDING * 0.5}px` : 0,
             }}
           >
@@ -286,6 +294,7 @@ export const DraggableNote = memo(DraggableNoteComponent, (prevProps, nextProps)
     prevProps.isDragging === nextProps.isDragging &&
     prevProps.zIndex === nextProps.zIndex &&
     prevProps.canvasScale === nextProps.canvasScale &&
+    prevProps.isPanning === nextProps.isPanning &&
     prevProps.onNoteView === nextProps.onNoteView
   );
 });

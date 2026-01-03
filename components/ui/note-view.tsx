@@ -128,7 +128,6 @@ function NoteViewComponent({ note, onClose, onEdit, onNoteDeleted }: NoteViewPro
 
   const handleReply = useCallback(() => {
     // WIP - placeholder for reply functionality
-    console.log('Reply functionality coming soon');
   }, []);
 
   const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {

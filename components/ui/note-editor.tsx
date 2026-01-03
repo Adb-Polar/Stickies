@@ -187,7 +187,6 @@ function NoteEditorComponent({ note, onClose, onNoteUpdated, onNoteDeleted }: No
 
   const handleAttachFile = useCallback(() => {
     // WIP - placeholder for attachment functionality
-    console.log('Attachment functionality coming soon');
   }, []);
 
   if (!note) return null;

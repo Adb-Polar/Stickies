@@ -154,7 +154,6 @@ function HomeContent() {
           onProfile={() => setShowProfileModal(true)}
           onMiddleAction={() => {
             // Placeholder for future feature
-            console.log('Middle action clicked');
           }}
           isHidden={!!viewedNote || showNoteCreator || !!selectedNote}
         />
