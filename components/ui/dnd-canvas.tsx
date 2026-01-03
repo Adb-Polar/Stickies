@@ -9,7 +9,7 @@
  * Key Features:
  * - HTML/CSS-based rendering (replaced Konva.js for better performance)
  * - @dnd-kit for drag-and-drop functionality
- * - Direct DOM manipulation for smooth 60fps pan/zoom on mobile
+ * - react-zoom-pan-pinch for smooth pan/zoom gestures
  * - Viewport culling to only render visible notes
  * - Incremental z-index system for dragged notes
  * - Text selection support (double-click to edit)
@@ -17,16 +17,16 @@
  * Performance Optimizations:
  * - Viewport culling with dynamic padding
  * - React.memo for note components
- * - Direct DOM transforms during gestures (bypasses React render cycle)
- * - requestAnimationFrame throttling for pan/hover updates
+ * - requestAnimationFrame throttling for hover updates
  * - GPU acceleration with will-change CSS property
+ * - Optimized integration between react-zoom-pan-pinch and @dnd-kit
  * 
  * @module components/ui/dnd-canvas
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { flushSync } from 'react-dom';
 import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { TransformWrapper, TransformComponent, ReactZoomPanPinchRef } from 'react-zoom-pan-pinch';
 import { useAuth } from '@/components/providers/auth-provider';
 import { API_URL } from '@/lib/api-config';
 import { DraggableNote, type Note } from './draggable-note';
@@ -52,20 +52,20 @@ interface DndCanvasProps {
  * 
  * Features:
  * - Fetches notes from API and manages their positions
- * - Implements pan and zoom with mouse wheel and touch gestures
- * - Handles drag-and-drop for repositioning notes
+ * - Uses react-zoom-pan-pinch for pan and zoom with mouse wheel and touch gestures
+ * - Handles drag-and-drop for repositioning notes with @dnd-kit
  * - Viewport culling for performance (only renders visible notes)
  * - Manages z-index for dragged notes (incremental system)
  * 
  * Performance Optimizations:
- * - Direct DOM manipulation during pan/zoom gestures (bypasses React)
  * - Viewport culling with dynamic padding
- * - requestAnimationFrame throttling for smooth updates
+ * - requestAnimationFrame throttling for hover updates
  * - React.memo for note components
+ * - Optimized integration between react-zoom-pan-pinch and @dnd-kit
  * 
  * State Management:
- * - Uses refs for synchronous access during high-frequency events (pan/zoom)
- * - Syncs refs to React state on gesture end
+ * - Uses react-zoom-pan-pinch for transform state management
+ * - Syncs transform state for coordinate calculations
  * - Functional state updates to avoid stale closures
  * 
  * @param props - Component props
@@ -82,55 +82,59 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
   const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
   const [canvasPosition, setCanvasPosition] = useState({ x: 0, y: 0 });
   const [canvasScale, setCanvasScale] = useState(1);
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [dragStartPosition, setDragStartPosition] = useState<{ x: number; y: number } | null>(null);
   const [noteZIndices, setNoteZIndices] = useState<Map<string, number>>(new Map());
   const zIndexCounterRef = useRef(100);
   const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLDivElement>(null);
   const backgroundRef = useRef<HTMLDivElement>(null);
   const initializedNotesRef = useRef<Set<string>>(new Set());
-  const lastTouchDistance = useRef<number | null>(null);
-  const panUpdateRef = useRef<number | null>(null);
   const hoverUpdateRef = useRef<number | null>(null);
-  const canvasScaleRef = useRef(canvasScale);
-  const canvasPositionRef = useRef(canvasPosition);
-  // Ref to track panning state for use in callbacks (avoids stale closures)
-  const isPanningRef = useRef(false);
-  const zoomAnimationRef = useRef<number | null>(null);
-  const touchCenterRef = useRef<{ x: number; y: number } | null>(null);
-  const targetScaleRef = useRef<number | null>(null);
+  const transformRef = useRef<ReactZoomPanPinchRef | null>(null);
+  const transformUpdateRef = useRef<number | null>(null);
+  const backgroundUpdateRef = useRef<number | null>(null);
+  const hasCenteredRef = useRef(false);
   const { token, user } = useAuth();
-
-  // Keep refs in sync with state
-  useEffect(() => {
-    canvasScaleRef.current = canvasScale;
-  }, [canvasScale]);
-
-  useEffect(() => {
-    canvasPositionRef.current = canvasPosition;
-  }, [canvasPosition]);
-
-  // Keep isPanningRef in sync with isPanning state
-  useEffect(() => {
-    isPanningRef.current = isPanning;
-  }, [isPanning]);
+  
+  const handleTransformChange = useCallback((ref: ReactZoomPanPinchRef) => {
+    if (transformUpdateRef.current !== null) {
+      cancelAnimationFrame(transformUpdateRef.current);
+    }
+    
+    transformUpdateRef.current = requestAnimationFrame(() => {
+      const { state } = ref;
+      // react-zoom-pan-pinch provides scale and position in screen coordinates
+      setCanvasScale(state.scale);
+      setCanvasPosition({ x: state.positionX, y: state.positionY });
+      transformUpdateRef.current = null;
+    });
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8,
+        distance: 10,
       },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
         delay: 200,
-        tolerance: 5,
+        tolerance: 8,
       },
     })
   );
+
+  const panningConfig = useMemo(() => ({
+    disabled: !!activeId,
+    velocityDisabled: false,
+  }), [activeId]);
+
+  const wheelConfig = useMemo(() => ({
+    step: 0.1,
+    disabled: !!activeId,
+    wheelDisabled: !!activeId,
+    touchPadDisabled: !!activeId,
+  }), [activeId]);
 
   const fetchNotes = useCallback(async () => {
     try {
@@ -292,7 +296,10 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
         if (sizeChanged && (containerSize.width > 0 || containerSize.height > 0)) {
           setCanvasPosition({ x: 0, y: 0 });
           setCanvasScale(1);
-          setIsPanning(false);
+          // Reset transform via react-zoom-pan-pinch
+          if (transformRef.current) {
+            transformRef.current.resetTransform();
+          }
         }
       }
     }
@@ -368,7 +375,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
    * Uses incremental counter approach (not fixed high values like 9999)
    * 
    * Coordinate conversion: delta is in screen pixels, divide by canvasScale
-   * to convert to world coordinates (same as dragOffset calculation above)
+   * to convert to world coordinates (accounting for react-zoom-pan-pinch transform)
    */
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, delta } = event;
@@ -376,6 +383,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     
     if (dragStartPosition && delta) {
       // Convert delta from screen coordinates to world coordinates
+      // react-zoom-pan-pinch handles the transform, so we just need to divide by scale
       const newX = dragStartPosition.x + delta.x / canvasScale;
       const newY = dragStartPosition.y + delta.y / canvasScale;
       
@@ -406,432 +414,60 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
   }, [canvasScale, dragStartPosition]);
 
   /**
-   * Handles mouse down on canvas for panning
-   * Syncs refs from state before starting pan to avoid stale values
+   * Updates background position and size based on current transform
+   * Throttled with requestAnimationFrame to avoid excessive DOM updates during pan/zoom
    */
-  const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('canvas-background')) {
-      // Sync refs from state before panning (in case state was updated)
-      canvasPositionRef.current = canvasPosition;
-      canvasScaleRef.current = canvasScale;
-      setIsPanning(true);
-      setPanStart({
-        x: e.clientX - canvasPositionRef.current.x,
-        y: e.clientY - canvasPositionRef.current.y,
-      });
-    }
-  }, [canvasPosition, canvasScale]);
-
-  /**
-   * Handles mouse move for panning
-   * Uses direct DOM manipulation for smooth 60fps performance
-   * Throttled with requestAnimationFrame
-   */
-  const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isPanning) {
-      if (panUpdateRef.current !== null) {
-        cancelAnimationFrame(panUpdateRef.current);
-      }
-      panUpdateRef.current = requestAnimationFrame(() => {
-        // Check if panning is still active using ref (avoids stale closure)
-        // This prevents updates after mouse up
-        if (!isPanningRef.current) {
-          panUpdateRef.current = null;
-          return;
-        }
-        
-        const newPos = {
-          x: e.clientX - panStart.x,
-          y: e.clientY - panStart.y,
-        };
-        
-        // Update refs immediately
-        canvasPositionRef.current = newPos;
-        
-        // Apply transform directly to DOM using transform3d for GPU acceleration
-        if (canvasRef.current) {
-          const currentScale = canvasScaleRef.current;
-          // Use transform3d for GPU acceleration (hardware acceleration)
-          canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${currentScale}, ${currentScale}, 1)`;
-        }
-        
-        // Update background position and size directly for smooth infinite tiling during pan
-        if (backgroundRef.current) {
-          const currentScale = canvasScaleRef.current;
-          backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
-          // Scale background texture with zoom: when zoomed in 2x, texture appears smaller (more detail)
-          // Multiply by scale to make texture scale with zoom (larger scale = larger backgroundSize = smaller appearance)
-          backgroundRef.current.style.backgroundSize = `${100 * currentScale}%`;
-        }
-        
-        // CRITICAL: Don't update state during move - only update refs and DOM
-        // State updates are queued and can fire after mouse up, causing teleport
-        // We'll sync to state only on mouse up using flushSync
-        panUpdateRef.current = null;
-      });
-    }
-  }, [isPanning, panStart]);
-
-  const handleCanvasMouseUp = useCallback(() => {
-    // CRITICAL: Cancel any pending animation frames FIRST
-    if (panUpdateRef.current !== null) {
-      cancelAnimationFrame(panUpdateRef.current);
-      panUpdateRef.current = null;
+  useEffect(() => {
+    if (backgroundUpdateRef.current !== null) {
+      cancelAnimationFrame(backgroundUpdateRef.current);
     }
     
-    // Get final values from refs (these are the actual current DOM positions)
-    const finalPos = canvasPositionRef.current;
-    
-    // Reset panning state FIRST (before state updates)
-    setIsPanning(false);
-    
-    // CRITICAL: Use flushSync to update state synchronously before next paint
-    // This ensures React re-renders immediately with correct values
-    // and prevents the "teleport" effect where canvas moves after mouse release
-    flushSync(() => {
-      setCanvasPosition(finalPos);
-    });
-    
-    // Ensure DOM transform matches state after flushSync
-    // This is a safety check in case React's render didn't apply it correctly
-    if (canvasRef.current) {
-      const finalScale = canvasScaleRef.current;
-      canvasRef.current.style.transform = `translate3d(${finalPos.x}px, ${finalPos.y}px, 0) scale3d(${finalScale}, ${finalScale}, 1)`;
-    }
-    
-    // Sync background position to match final state
-    if (backgroundRef.current) {
-      backgroundRef.current.style.backgroundPosition = `${finalPos.x}px ${finalPos.y}px`;
-    }
-  }, []);
-
-  /**
-   * Handles mouse wheel for zooming
-   * Zooms centered on the mouse cursor position (the point under cursor stays fixed)
-   * 
-   * Zoom Algorithm:
-   * 1. Get mouse position in screen coordinates
-   * 2. Convert to world coordinates using OLD scale
-   * 3. Calculate NEW scale (10% per scroll step, clamped 0.5x - 3x)
-   * 4. Calculate NEW pan position so the world point stays under mouse cursor
-   * 
-   * Why this works:
-   * - World coordinates are independent of zoom level
-   * - By keeping the world point under the cursor, zoom feels natural
-   * - Formula: newPan = mouseScreen - (worldPoint * newScale)
-   * 
-   * Example:
-   * - Mouse at screen (100, 100), zoom 1x, pan (0, 0)
-   * - World point = (100, 100)
-   * - Zoom to 2x: newPan = (100, 100) - (100, 100) * 2 = (-100, -100)
-   * - World point (100, 100) now at screen (100, 100) ✓
-   * 
-   * Uses refs for synchronous access to avoid stale closures
-   */
-  const handleCanvasWheel = useCallback((e: React.WheelEvent) => {
-    // Prevent zooming while dragging a note to avoid glitchy behavior
-    if (activeId) return;
-    
-    e.preventDefault();
-    if (!containerRef.current) return;
-    
-    const rect = containerRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    
-    // Use refs to get current values synchronously (avoids stale closures)
-    const oldScale = canvasScaleRef.current;
-    const oldPos = canvasPositionRef.current;
-    
-    // Zoom factor: 10% per scroll step
-    const scaleBy = 1.1;
-    const newScale = e.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
-    // Clamp zoom between 0.5x (zoomed out) and 3x (zoomed in)
-    const clampedScale = Math.max(0.5, Math.min(3, newScale));
-    
-    // Convert mouse position to world coordinates using OLD scale
-    // World coordinates are independent of zoom level
-    const worldX = (mouseX - oldPos.x) / oldScale;
-    const worldY = (mouseY - oldPos.y) / oldScale;
-    
-    // Calculate new pan position so the world point stays under the mouse with NEW scale
-    // This keeps the zoom centered on the cursor
-    const newPos = {
-      x: mouseX - worldX * clampedScale,
-      y: mouseY - worldY * clampedScale,
-    };
-    
-    // Cancel any pending zoom animation to prevent jitter
-    if (zoomAnimationRef.current !== null) {
-      cancelAnimationFrame(zoomAnimationRef.current);
-    }
-    
-    // Throttle zoom updates to animation frames for smooth performance
-    // This prevents jitter during rapid wheel scrolling
-    zoomAnimationRef.current = requestAnimationFrame(() => {
-      // Update refs immediately for synchronous access
-      canvasScaleRef.current = clampedScale;
-      canvasPositionRef.current = newPos;
-      
-      // Apply transform directly to DOM using transform3d for GPU acceleration
-      if (canvasRef.current) {
-        canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${clampedScale}, ${clampedScale}, 1)`;
-      }
-      
-      // Update background position and size directly for smooth infinite tiling during zoom
-      // Use screen coordinates directly for consistent visual speed at all zoom levels
+    backgroundUpdateRef.current = requestAnimationFrame(() => {
       if (backgroundRef.current) {
-        backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
-        // Scale background texture with zoom: when zoomed in 2x, texture appears smaller (more detail)
-        // Multiply by scale to make texture scale with zoom (larger scale = larger backgroundSize = smaller appearance)
-        backgroundRef.current.style.backgroundSize = `${100 * clampedScale}%`;
+        backgroundRef.current.style.backgroundPosition = `${canvasPosition.x}px ${canvasPosition.y}px`;
+        backgroundRef.current.style.backgroundSize = `${100 * canvasScale}%`;
       }
-      
-      // Update both states together (scale and position must update atomically)
-      setCanvasScale(clampedScale);
-      setCanvasPosition(newPos);
-      
-      zoomAnimationRef.current = null;
-    });
-  }, [activeId]);
-
-  /**
-   * Handles touch start for pan and pinch zoom
-   * Detects single touch (pan) vs two touches (pinch zoom)
-   * 
-   * Performance optimizations:
-   * - Prevents default browser behavior to avoid scrolling/rubber banding
-   * - Syncs refs before gesture starts to avoid stale values
-   * - Cancels any ongoing animations for smooth transitions
-   */
-  const handleCanvasTouchStart = useCallback((e: React.TouchEvent) => {
-    // Prevent default browser gestures (scrolling, rubber banding)
-    // This is critical for smooth touch interactions
-    if (e.touches.length === 2 || (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('canvas-background'))) {
-      e.preventDefault();
-    }
-    if (e.touches.length === 2) {
-      // Sync current state to refs before starting new zoom
-      canvasScaleRef.current = canvasScale;
-      canvasPositionRef.current = canvasPosition;
-      
-      // Cancel any ongoing zoom animation
-      if (zoomAnimationRef.current !== null) {
-        cancelAnimationFrame(zoomAnimationRef.current);
-        zoomAnimationRef.current = null;
-      }
-      const touch1 = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      const touch2 = { x: e.touches[1].clientX, y: e.touches[1].clientY };
-      lastTouchDistance.current = Math.hypot(touch2.x - touch1.x, touch2.y - touch1.y);
-      touchCenterRef.current = null;
-      targetScaleRef.current = null;
-    } else if (e.touches.length === 1 && (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('canvas-background'))) {
-      // Sync refs from state before panning (in case state was updated)
-      canvasPositionRef.current = canvasPosition;
-      canvasScaleRef.current = canvasScale;
-      setIsPanning(true);
-      setPanStart({
-        x: e.touches[0].clientX - canvasPositionRef.current.x,
-        y: e.touches[0].clientY - canvasPositionRef.current.y,
-      });
-    }
-  }, [canvasPosition, canvasScale]);
-
-  /**
-   * Handles touch move for pan and pinch zoom
-   * Uses direct DOM manipulation during gesture for smooth 60fps performance
-   * 
-   * Performance Strategy:
-   * - Direct DOM manipulation bypasses React render cycle during gesture
-   * - Prevents "rubberband" effect on mobile (laggy scrolling)
-   * - Updates refs immediately for synchronous access
-   * - Syncs to React state on gesture end (for other components)
-   * 
-   * Two-finger Pinch Zoom:
-   * - Calculates distance between two touches
-   * - Scales based on distance change from initial pinch
-   * - Centers zoom on midpoint between touches
-   * - Uses requestAnimationFrame for smooth updates
-   * 
-   * Single-finger Pan:
-   * - Updates canvas position based on touch movement
-   * - Uses requestAnimationFrame to throttle updates
-   * - Applies transform directly to DOM element
-   */
-  const handleCanvasTouchMove = useCallback((e: React.TouchEvent) => {
-    // Prevent zooming while dragging a note to avoid glitchy behavior
-    if (activeId && e.touches.length === 2) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Always prevent default to avoid browser scrolling/rubber banding
-    // This is critical for smooth touch interactions
-    if (e.touches.length === 2 || isPanning) {
-      e.preventDefault();
-    }
-    
-    if (e.touches.length === 2) {
-      const touch1 = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      const touch2 = { x: e.touches[1].clientX, y: e.touches[1].clientY };
-      const distance = Math.hypot(touch2.x - touch1.x, touch2.y - touch1.y);
-      
-      if (!containerRef.current) return;
-      
-      const rect = containerRef.current.getBoundingClientRect();
-      const centerX = (touch1.x + touch2.x) / 2 - rect.left;
-      const centerY = (touch1.y + touch2.y) / 2 - rect.top;
-      
-      if (lastTouchDistance.current !== null) {
-        const scaleBy = distance / lastTouchDistance.current;
-        const oldScale = canvasScaleRef.current;
-        const newScale = oldScale * scaleBy;
-        const clampedScale = Math.max(0.5, Math.min(3, newScale));
-        
-        // Store target values for smooth animation
-        touchCenterRef.current = { x: centerX, y: centerY };
-        targetScaleRef.current = clampedScale;
-        lastTouchDistance.current = distance;
-        
-        // Apply zoom directly to DOM without React state updates for smoother performance
-        if (canvasRef.current) {
-          const oldScale = canvasScaleRef.current;
-          const oldPos = canvasPositionRef.current;
-          
-          // Convert center position to world coordinates using OLD scale
-          const worldX = (centerX - oldPos.x) / oldScale;
-          const worldY = (centerY - oldPos.y) / oldScale;
-          
-          // Calculate new position so the world point stays under the center with NEW scale
-          const newPos = {
-            x: centerX - worldX * clampedScale,
-            y: centerY - worldY * clampedScale,
-          };
-          
-          // Update refs immediately
-          canvasScaleRef.current = clampedScale;
-          canvasPositionRef.current = newPos;
-          
-          // Apply transform directly to DOM using transform3d for GPU acceleration
-          // This bypasses React render cycle for smooth 60fps performance
-          canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${clampedScale}, ${clampedScale}, 1)`;
-          
-          // Update background position and size directly for smooth infinite tiling during pinch zoom
-          // Use screen coordinates directly for consistent visual speed at all zoom levels
-          if (backgroundRef.current) {
-            backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
-            // Scale background texture with zoom: when zoomed in 2x, texture appears smaller (more detail)
-            // Multiply by scale to make texture scale with zoom (larger scale = larger backgroundSize = smaller appearance)
-            backgroundRef.current.style.backgroundSize = `${100 * clampedScale}%`;
-          }
-        }
-      } else {
-        lastTouchDistance.current = distance;
-      }
-    } else if (isPanning && e.touches.length === 1) {
-      // Prevent default to avoid browser scrolling/rubber banding
-      e.preventDefault();
-      
-      if (panUpdateRef.current !== null) {
-        cancelAnimationFrame(panUpdateRef.current);
-      }
-      panUpdateRef.current = requestAnimationFrame(() => {
-        // Check if panning is still active using ref (avoids stale closure)
-        // This prevents updates after touch end - fixes "teleport" issue
-        if (!isPanningRef.current) {
-          panUpdateRef.current = null;
-          return;
-        }
-        
-        const newPos = {
-          x: e.touches[0].clientX - panStart.x,
-          y: e.touches[0].clientY - panStart.y,
-        };
-        
-        // Update refs immediately
-        canvasPositionRef.current = newPos;
-        
-        // Apply transform directly to DOM using transform3d for GPU acceleration
-        if (canvasRef.current) {
-          const currentScale = canvasScaleRef.current;
-          canvasRef.current.style.transform = `translate3d(${newPos.x}px, ${newPos.y}px, 0) scale3d(${currentScale}, ${currentScale}, 1)`;
-        }
-        
-        // Update background position and size directly for smooth infinite tiling during pan
-        if (backgroundRef.current) {
-          const currentScale = canvasScaleRef.current;
-          backgroundRef.current.style.backgroundPosition = `${newPos.x}px ${newPos.y}px`;
-          // Scale background texture with zoom: when zoomed in 2x, texture appears smaller (more detail)
-          // Multiply by scale to make texture scale with zoom (larger scale = larger backgroundSize = smaller appearance)
-          backgroundRef.current.style.backgroundSize = `${100 * currentScale}%`;
-        }
-        
-        // CRITICAL: Don't update state during move - only update refs and DOM
-        // State updates are queued and can fire after touch end, causing teleport
-        // We'll sync to state only on touch end using flushSync
-        panUpdateRef.current = null;
-      });
-    }
-  }, [isPanning, panStart, activeId]);
-
-  /**
-   * Handles touch end
-   * Syncs refs back to React state after gesture completes
-   * 
-   * Cleanup:
-   * - Cancels any pending animation frames
-   * - Resets touch tracking state
-   * - Syncs final values to React state for other components
-   */
-  const handleCanvasTouchEnd = useCallback((e: React.TouchEvent) => {
-    // Prevent default to avoid any browser gestures (scrolling, rubber banding)
-    // Only prevent if we were actually panning/zooming
-    if (isPanning || lastTouchDistance.current !== null) {
-      e.preventDefault();
-    }
-    
-    // CRITICAL: Cancel any pending animation frames FIRST
-    // This prevents the "teleport" effect where the canvas continues moving
-    // after finger lift and then snaps back
-    if (panUpdateRef.current !== null) {
-      cancelAnimationFrame(panUpdateRef.current);
-      panUpdateRef.current = null;
-    }
-    if (zoomAnimationRef.current !== null) {
-      cancelAnimationFrame(zoomAnimationRef.current);
-      zoomAnimationRef.current = null;
-    }
-    
-    // Get final values from refs (these are the actual current DOM positions)
-    const finalScale = canvasScaleRef.current;
-    const finalPos = canvasPositionRef.current;
-    
-    // Reset panning state FIRST (before state updates)
-    setIsPanning(false);
-    lastTouchDistance.current = null;
-    touchCenterRef.current = null;
-    targetScaleRef.current = null;
-    
-    // CRITICAL: Use flushSync to update state synchronously before next paint
-    // This ensures React re-renders immediately with correct values
-    // and prevents the "teleport" effect where canvas moves after finger lift
-    flushSync(() => {
-      setCanvasScale(finalScale);
-      setCanvasPosition(finalPos);
+      backgroundUpdateRef.current = null;
     });
     
-    // Ensure DOM transform matches state after flushSync
-    // This is a safety check in case React's render didn't apply it correctly
-    if (canvasRef.current) {
-      canvasRef.current.style.transform = `translate3d(${finalPos.x}px, ${finalPos.y}px, 0) scale3d(${finalScale}, ${finalScale}, 1)`;
+    return () => {
+      if (backgroundUpdateRef.current !== null) {
+        cancelAnimationFrame(backgroundUpdateRef.current);
+      }
+    };
+  }, [canvasPosition.x, canvasPosition.y, canvasScale]);
+
+  // Center view on notes when they're loaded (only once)
+  useEffect(() => {
+    if (
+      !hasCenteredRef.current &&
+      transformRef.current &&
+      notes.length > 0 &&
+      notePositions.size > 0 &&
+      containerSize.width > 0 &&
+      containerSize.height > 0
+    ) {
+      const positions = Array.from(notePositions.values());
+      if (positions.length > 0) {
+        const currentState = transformRef.current.state;
+        // Only center if still at initial position
+        if (currentState.positionX === 0 && currentState.positionY === 0 && currentState.scale === 1) {
+          const avgX = positions.reduce((sum, p) => sum + p.x, 0) / positions.length;
+          const avgY = positions.reduce((sum, p) => sum + p.y, 0) / positions.length;
+          
+          // Center view on average note position
+          transformRef.current.setTransform(
+            -avgX + containerSize.width / 2,
+            -avgY + containerSize.height / 2,
+            1
+          );
+          
+          hasCenteredRef.current = true;
+        }
+      }
     }
-    
-    // Sync background position and size to match final state
-    if (backgroundRef.current) {
-      backgroundRef.current.style.backgroundPosition = `${finalPos.x}px ${finalPos.y}px`;
-      backgroundRef.current.style.backgroundSize = `${100 * finalScale}%`;
-    }
-  }, [isPanning]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes.length, notePositions.size, containerSize.width, containerSize.height]);
 
   /**
    * Calculates which notes are visible in the viewport for viewport culling
@@ -856,24 +492,26 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
       return notes;
     }
 
-    // Convert screen viewport to world coordinates
-    // Negative because pan moves canvas in opposite direction
+    // Use state values (updated by handleTransformChange) for coordinate calculation
+    // react-zoom-pan-pinch coordinate system:
+    // - positionX/positionY are the transform offset in screen pixels
+    // - When you pan right, positionX increases (positive)
+    // - Content moves left, so viewport sees content at (-positionX/scale, -positionY/scale) in world space
+    // - Viewport size in world space = containerSize / scale
     const worldLeft = -canvasPosition.x / canvasScale;
     const worldTop = -canvasPosition.y / canvasScale;
     const worldRight = worldLeft + containerSize.width / canvasScale;
     const worldBottom = worldTop + containerSize.height / canvasScale;
 
     // Dynamic padding: scales with zoom (more padding when zoomed in)
-    // Significantly increased padding to prevent notes from popping in/out during pan
-    // Formula: base padding (500px) + zoom-based padding (250px per scale unit)
-    // This gives us: 500px at 1x zoom, 750px at 2x zoom, 1000px at 3x zoom
-    // Larger padding means notes appear/disappear further off-screen, reducing visible pop-in
-    // The increased padding trades some performance for smoother visual experience
-    const padding = Math.max(500, 250 * canvasScale);
-    const paddedLeft = worldLeft - padding;
-    const paddedTop = worldTop - padding;
-    const paddedRight = worldRight + padding;
-    const paddedBottom = worldBottom + padding;
+    // Base padding of 500px ensures notes are visible before entering viewport
+    // Additional padding scales with zoom (200px per scale unit)
+    const worldPadding = 500 + (200 * canvasScale);
+    
+    const paddedLeft = worldLeft - worldPadding;
+    const paddedTop = worldTop - worldPadding;
+    const paddedRight = worldRight + worldPadding;
+    const paddedBottom = worldBottom + worldPadding;
 
     // AABB collision detection: note is visible if it overlaps with padded viewport
     return notes.filter((note) => {
@@ -891,10 +529,12 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
         noteBottom > paddedTop
       );
     });
-  }, [notes, notePositions, canvasPosition, canvasScale, containerSize]);
+  }, [notes, notePositions, containerSize, canvasPosition, canvasScale]);
 
   const handleCanvasClick = useCallback((e: React.MouseEvent) => {
-    if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('canvas-background')) {
+    // Only handle clicks on the background, not on notes
+    const target = e.target as HTMLElement;
+    if (target === e.currentTarget || target.classList.contains('canvas-background') || target.classList.contains('react-transform-component')) {
       if (onNoteSelect && !activeId) {
         onNoteSelect(null);
       }
@@ -933,112 +573,101 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
   return (
     <div
       ref={containerRef}
-      className="w-full h-full bg-[#fdfef0] relative overflow-hidden"
-      onMouseDown={handleCanvasMouseDown}
-      onMouseMove={handleCanvasMouseMove}
-      onMouseUp={handleCanvasMouseUp}
-      onMouseLeave={handleCanvasMouseUp}
-      onWheel={handleCanvasWheel}
-      onTouchStart={handleCanvasTouchStart}
-      onTouchMove={handleCanvasTouchMove}
-      onTouchEnd={handleCanvasTouchEnd}
+      className="w-full h-full bg-[#fdfef0] relative"
       onClick={handleCanvasClick}
       style={{ 
-        cursor: isPanning ? 'move' : 'default', 
-        touchAction: 'none', // Prevents browser touch gestures (pinch zoom, pan, etc.)
-        WebkitUserSelect: 'none', // Prevents text selection during panning
-        userSelect: 'none', // Prevents text selection during panning
-        WebkitTouchCallout: 'none', // Prevents iOS callout menu
+        WebkitUserSelect: 'none',
+        userSelect: 'none',
+        WebkitTouchCallout: 'none',
       }}
     >
-      {/* Infinite tiled background texture layer - fixed position, updates background-position */}
-      {/* This approach is more performant: background is not transformed, only background-position updates */}
-      {/* Background position is calculated to move with canvas transform, creating infinite tiling effect */}
+      {/* Infinite tiled background texture layer - optimized updates */}
       <div
         ref={backgroundRef}
         className="absolute inset-0 pointer-events-none"
         style={{
-          // Fixed position - covers entire container, doesn't transform
-          // Background position updates based on canvas transform to create infinite movement
-          // Position is updated directly via DOM during gestures for smooth 60fps performance
           backgroundImage: 'url(/watercolor-paper.webp)',
           backgroundRepeat: 'repeat',
-          // Scale background texture with zoom: when zoomed in 2x, texture appears smaller (more detail)
-          // Multiply by scale to make texture scale with zoom (larger scale = larger backgroundSize = smaller appearance)
           backgroundSize: `${100 * canvasScale}%`,
-          // Use screen coordinates directly for background position
-          // This makes background move at consistent visual speed (screen pixels) at all zoom levels
-          // The background moves with the canvas at the same screen-space speed regardless of zoom
           backgroundPosition: `${canvasPosition.x}px ${canvasPosition.y}px`,
-          // Use background-blend-mode to colorize white texture to match #fdfef0
-          // Multiply blend: white (1,1,1) * #fdfef0 = #fdfef0
-          // This is more performant than mix-blend-mode as it only affects the background
           backgroundColor: '#fdfef0',
           backgroundBlendMode: 'multiply',
-          // Ensure background is behind canvas and notes
           zIndex: 0,
-          // GPU acceleration for smooth background-position updates
-          willChange: isPanning || activeId ? 'background-position' : 'auto',
+          willChange: 'background-position, background-size',
           backfaceVisibility: 'hidden',
         }}
       />
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <div
-          ref={canvasRef}
-          className="canvas-background absolute inset-0"
-          style={{
-            // Use transform3d for GPU acceleration (hardware acceleration)
-            // This ensures smooth 60fps performance during pan/zoom
-            transform: `translate3d(${canvasPosition.x}px, ${canvasPosition.y}px, 0) scale3d(${canvasScale}, ${canvasScale}, 1)`,
-            transformOrigin: '0 0',
-            // will-change hints browser to optimize for transforms
-            // Only set during active gestures to avoid unnecessary optimization
-            willChange: isPanning || activeId ? 'transform' : 'auto',
-            // Backface visibility optimization for 3D transforms
-            backfaceVisibility: 'hidden',
-            // Force GPU layer creation for smoother animations
-            WebkitTransform: `translate3d(${canvasPosition.x}px, ${canvasPosition.y}px, 0) scale3d(${canvasScale}, ${canvasScale}, 1)`,
-            // Ensure canvas is above background
-            zIndex: 1,
-            // Prevent text selection during panning
-            WebkitUserSelect: 'none',
-            userSelect: 'none',
+      <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <TransformWrapper
+          initialScale={1}
+          minScale={0.5}
+          maxScale={3}
+          limitToBounds={false}
+          panning={panningConfig}
+          wheel={wheelConfig}
+          doubleClick={{ disabled: true }}
+          initialPositionX={0}
+          initialPositionY={0}
+          onTransformed={(ref) => {
+            transformRef.current = ref;
+            handleTransformChange(ref);
+          }}
+          onInit={(ref) => {
+            transformRef.current = ref;
           }}
         >
-          {visibleNotes.map((note) => {
-            const position = notePositions.get(note.id) || { x: 0, y: 0, rotation: 0 };
-            const opacity = noteOpacities.get(note.id) ?? 1;
-            const isSelected = selectedNoteId === note.id;
-            const isHovered = hoveredNoteId === note.id;
-            const isDragging = activeId === note.id;
-            const noteZIndex = noteZIndices.get(note.id) || (isSelected ? 10 : isHovered ? 5 : 1);
-            const hoverHandlers = createHoverHandlers(note.id);
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <TransformComponent
+            wrapperClass="canvas-background"
+            contentClass="canvas-content"
+          >
+            <div
+              style={{
+                position: 'relative',
+                width: '100%',
+                height: '100%',
+                WebkitUserSelect: 'none',
+                userSelect: 'none',
+                pointerEvents: 'none', // Allow events to pass through to wrapper for pan/zoom
+              }}
+            >
+              {visibleNotes.map((note) => {
+                const position = notePositions.get(note.id) || { x: 0, y: 0, rotation: 0 };
+                const opacity = noteOpacities.get(note.id) ?? 1;
+                const isSelected = selectedNoteId === note.id;
+                const isHovered = hoveredNoteId === note.id;
+                const isDragging = activeId === note.id;
+                const noteZIndex = noteZIndices.get(note.id) || (isSelected ? 10 : isHovered ? 5 : 1);
+                const hoverHandlers = createHoverHandlers(note.id);
 
-            return (
-              <DraggableNote
-                key={note.id}
-                note={note}
-                position={position}
-                opacity={opacity}
-                isSelected={isSelected}
-                isHovered={isHovered}
-                onNoteClick={handleNoteClick}
-                onNoteView={handleNoteView}
-                onMouseEnter={hoverHandlers.onMouseEnter}
-                onMouseLeave={hoverHandlers.onMouseLeave}
-                canvasScale={canvasScale}
-                isDragging={isDragging}
-                zIndex={noteZIndex}
-                isPanning={isPanning}
-              />
-            );
-          })}
-        </div>
-      </DndContext>
+                return (
+                  <DraggableNote
+                    key={note.id}
+                    note={note}
+                    position={position}
+                    opacity={opacity}
+                    isSelected={isSelected}
+                    isHovered={isHovered}
+                    onNoteClick={handleNoteClick}
+                    onNoteView={handleNoteView}
+                    onMouseEnter={hoverHandlers.onMouseEnter}
+                    onMouseLeave={hoverHandlers.onMouseLeave}
+                    canvasScale={canvasScale}
+                    isDragging={isDragging}
+                    zIndex={noteZIndex}
+                    isPanning={false}
+                  />
+                );
+              })}
+            </div>
+          </TransformComponent>
+        </DndContext>
+      </TransformWrapper>
+      </div>
     </div>
   );
 }

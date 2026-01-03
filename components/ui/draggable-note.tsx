@@ -113,7 +113,11 @@ function DraggableNoteComponent({
   const headerColor = useMemo(() => darkenColor(colors.header, 20), [colors.header]);
   const authorName = useMemo(() => note.user.username ? `-${note.user.username}` : '', [note.user.username]);
   
-  const scale = isHovered ? 1.03 : 1;
+  // Scale effect: hover = 1.03, dragging = 1.1 with slight rotation for interactive feel
+  const dragScale = isDragging ? 1.1 : 1;
+  const hoverScale = isHovered && !isDragging ? 1.03 : 1;
+  const scale = dragScale * hoverScale;
+  const dragRotation = isDragging ? position.rotation + 2 : position.rotation; // Slight tilt when dragging
   const scaleOffsetX = ((scale - 1) * NOTE_WIDTH) / 2;
   const scaleOffsetY = ((scale - 1) * NOTE_HEIGHT) / 2;
 
@@ -145,7 +149,7 @@ function DraggableNoteComponent({
     top: `${position.y - scaleOffsetY + dragOffset.y}px`,
     width: `${NOTE_WIDTH}px`,
     height: `${NOTE_HEIGHT}px`,
-    transform: `rotate(${position.rotation}deg) scale(${scale})`,
+    transform: `rotate(${dragRotation}deg) scale(${scale})`,
     opacity,
     cursor: isDragging ? 'grabbing' : 'default',
     zIndex: isDragging ? zIndex + 1000 : zIndex,
@@ -177,7 +181,10 @@ function DraggableNoteComponent({
   return (
     <div
       ref={setNodeRef}
-      style={noteStyle}
+      style={{
+        ...noteStyle,
+        pointerEvents: 'auto', // Notes need to receive pointer events for interaction
+      }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
@@ -194,7 +201,9 @@ function DraggableNoteComponent({
             inset: 0,
             backgroundColor: colors.main,
             border: '1px solid rgba(0, 0, 0, 0.57)',
-            boxShadow: isHovered || isSelected
+            boxShadow: isDragging
+              ? '8px 16px 32px rgba(0, 0, 0, 0.4), 0 0 20px rgba(59, 130, 246, 0.5)'
+              : isHovered || isSelected
               ? '4px 10px 16px rgba(59, 130, 246, 0.3)'
               : '4px 10px 12px rgba(0, 0, 0, 0.25)',
           }}
