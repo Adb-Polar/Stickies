@@ -135,8 +135,10 @@ function DraggableNoteComponent({
    * Example: If canvasScale = 0.5 (zoomed out 50%):
    * - 10 screen pixels = 20 world pixels (10 / 0.5 = 20)
    * - This ensures the note moves the correct distance in world space
+   * 
+   * Only apply drag offset when actually dragging to prevent glitches
    */
-  const dragOffset = transform
+  const dragOffset = transform && isDragging
     ? {
         x: transform.x / canvasScale,
         y: transform.y / canvasScale,
@@ -181,9 +183,11 @@ function DraggableNoteComponent({
   return (
     <div
       ref={setNodeRef}
+      data-draggable-note={note.id}
       style={{
         ...noteStyle,
         pointerEvents: 'auto', // Notes need to receive pointer events for interaction
+        touchAction: 'none', // Prevent default touch behaviors (scrolling, zooming) on notes
       }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
