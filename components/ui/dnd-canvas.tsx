@@ -28,6 +28,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { TransformWrapper, TransformComponent, ReactZoomPanPinchRef } from 'react-zoom-pan-pinch';
 import { useGesture } from '@use-gesture/react';
@@ -91,6 +92,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
   const [noteZIndices, setNoteZIndices] = useState<Map<string, number>>(new Map());
   const [isMultiTouch, setIsMultiTouch] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
+  const [pendingDragNoteId, setPendingDragNoteId] = useState<string | null>(null);
   const zIndexCounterRef = useRef(100);
   const containerRef = useRef<HTMLDivElement>(null);
   const backgroundRef = useRef<HTMLDivElement>(null);
@@ -106,6 +108,8 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
   const pendingNoteDragRef = useRef<string | null>(null);
   const pendingDragTimeoutRef = useRef<number | null>(null);
   const initialTouchTargetRef = useRef<HTMLElement | null>(null);
+  const isMountedRef = useRef(true);
+  const finalDragOffsetRef = useRef<{ noteId: string; x: number; y: number } | null>(null);
   const { token, user } = useAuth();
   
   // Keep ref in sync with state
@@ -113,12 +117,24 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     isMultiTouchRef.current = isMultiTouch;
   }, [isMultiTouch]);
   
+  // Track mount state for RAF callbacks
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+  
   const handleTransformChange = useCallback((ref: ReactZoomPanPinchRef) => {
     if (transformUpdateRef.current !== null) {
       cancelAnimationFrame(transformUpdateRef.current);
     }
     
     transformUpdateRef.current = requestAnimationFrame(() => {
+      if (!isMountedRef.current) {
+        transformUpdateRef.current = null;
+        return;
+      }
       const { state } = ref;
       // react-zoom-pan-pinch provides scale and position in screen coordinates
       setCanvasScale(state.scale);
@@ -177,6 +193,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
       const noteId = noteElement.getAttribute('data-draggable-note');
       if (noteId) {
         pendingNoteDragRef.current = noteId;
+        setPendingDragNoteId(noteId);
         initialTouchTargetRef.current = target;
         
         // Store initial transform state (only if available)
@@ -238,6 +255,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
         }
         // Clear pending note drag
         pendingNoteDragRef.current = null;
+        setPendingDragNoteId(null);
         initialTouchTargetRef.current = null;
         initialTransformRef.current = null;
         if (pendingDragTimeoutRef.current !== null) {
@@ -256,6 +274,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
           // If drag hasn't started after activation delay + buffer, re-enable panning
           if (pendingNoteDragRef.current === noteId && !activeId) {
             pendingNoteDragRef.current = null;
+            setPendingDragNoteId(null);
             initialTouchTargetRef.current = null;
             initialTransformRef.current = null;
             setIsPanning(false);
@@ -265,6 +284,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
       } else {
         // Single touch on background - allow panning
         pendingNoteDragRef.current = null;
+        setPendingDragNoteId(null);
         initialTouchTargetRef.current = null;
         initialTransformRef.current = null;
         if (pendingDragTimeoutRef.current !== null) {
@@ -301,6 +321,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
       // Clear pending note drag if drag didn't start
       if (pendingNoteDragRef.current && !activeId) {
         pendingNoteDragRef.current = null;
+        setPendingDragNoteId(null);
       }
       
       // Clear initial touch target and transform
@@ -783,6 +804,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     // Clear pending note drag ref
     if (pendingNoteDragRef.current === noteId) {
       pendingNoteDragRef.current = null;
+      setPendingDragNoteId(null);
       initialTouchTargetRef.current = null;
       initialTransformRef.current = null;
     }
@@ -801,9 +823,11 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
    * Handles drag move event
    * Checks for multi-touch during drag and cancels if detected
    * Uses refs to avoid recreating callback on every state change
+   * Optimized: Only checks refs, no state updates unless cancellation needed
    */
   const handleDragMove = useCallback(() => {
-    // Check if multi-touch is detected during drag
+    // Fast ref check - only cancel if multi-touch detected
+    // This runs on every drag move, so it must be extremely lightweight
     if (isMultiTouchRef.current || gestureStateRef.current.touchCount > 1) {
       // Mark drag as cancelled to prevent visual updates
       dragCancelledRef.current = true;
@@ -812,6 +836,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
       setActiveId(null);
       setDragStartPosition(null);
     }
+    // No-op for single touch drags - let @dnd-kit handle the transform updates
   }, []);
 
   /**
@@ -853,31 +878,44 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
       const newX = dragStartPosition.x + delta.x / canvasScale;
       const newY = dragStartPosition.y + delta.y / canvasScale;
       
-      setNotePositions((prev) => {
-        const next = new Map(prev);
-        const currentPos = prev.get(noteId);
-        if (currentPos) {
-          next.set(noteId, {
-            ...currentPos,
-            x: newX,
-            y: newY,
-          });
-        }
-        return next;
+      // Update position to final location synchronously to prevent flicker
+      // Use flushSync to force immediate render before clearing drag state
+      flushSync(() => {
+        setNotePositions((prev) => {
+          const next = new Map(prev);
+          const currentPos = prev.get(noteId);
+          if (currentPos) {
+            next.set(noteId, {
+              ...currentPos,
+              x: newX,
+              y: newY,
+            });
+          }
+          return next;
+        });
+        
+        // Assign a new z-index to keep this note on top (incremental counter approach)
+        const newZIndex = zIndexCounterRef.current++;
+        setNoteZIndices((prev) => {
+          const next = new Map(prev);
+          next.set(noteId, newZIndex);
+          return next;
+        });
       });
       
-      // Assign a new z-index to keep this note on top (incremental counter approach)
-      const newZIndex = zIndexCounterRef.current++;
-      setNoteZIndices((prev) => {
-        const next = new Map(prev);
-        next.set(noteId, newZIndex);
-        return next;
-      });
+      // Now that position is updated and rendered, clear drag state
+      // No need for finalDragOffset since position update is synchronous
+      dragCancelledRef.current = false;
+      setActiveId(null);
+      setDragStartPosition(null);
+      finalDragOffsetRef.current = null;
+    } else {
+      // No position change, clear immediately
+      finalDragOffsetRef.current = null;
+      dragCancelledRef.current = false;
+      setActiveId(null);
+      setDragStartPosition(null);
     }
-    
-    dragCancelledRef.current = false;
-    setActiveId(null);
-    setDragStartPosition(null);
   }, [canvasScale, dragStartPosition]);
 
   /**
@@ -890,6 +928,10 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     }
     
     backgroundUpdateRef.current = requestAnimationFrame(() => {
+      if (!isMountedRef.current) {
+        backgroundUpdateRef.current = null;
+        return;
+      }
       if (backgroundRef.current) {
         backgroundRef.current.style.backgroundPosition = `${canvasPosition.x}px ${canvasPosition.y}px`;
         backgroundRef.current.style.backgroundSize = `${100 * canvasScale}%`;
@@ -1013,6 +1055,10 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
       onMouseEnter: () => {
         if (!activeId && hoverUpdateRef.current === null) {
           hoverUpdateRef.current = requestAnimationFrame(() => {
+            if (!isMountedRef.current) {
+              hoverUpdateRef.current = null;
+              return;
+            }
             setHoveredNoteId(noteId);
             hoverUpdateRef.current = null;
           });
@@ -1021,6 +1067,10 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
       onMouseLeave: () => {
         if (!activeId && hoverUpdateRef.current === null) {
           hoverUpdateRef.current = requestAnimationFrame(() => {
+            if (!isMountedRef.current) {
+              hoverUpdateRef.current = null;
+              return;
+            }
             setHoveredNoteId(null);
             hoverUpdateRef.current = null;
           });
@@ -1115,6 +1165,12 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
                 const isSelected = selectedNoteId === note.id;
                 const isHovered = hoveredNoteId === note.id;
                 const isDragging = activeId === note.id;
+                const isPendingDrag = pendingDragNoteId === note.id && !isDragging;
+                // Use final drag offset if available (prevents flicker on drag end)
+                // Use it for the note that just finished dragging (even if isDragging is now false)
+                const finalDragOffset = finalDragOffsetRef.current && finalDragOffsetRef.current.noteId === note.id
+                  ? { x: finalDragOffsetRef.current.x, y: finalDragOffsetRef.current.y }
+                  : null;
                 const noteZIndex = noteZIndices.get(note.id) || (isSelected ? 10 : isHovered ? 5 : 1);
                 const hoverHandlers = createHoverHandlers(note.id);
 
@@ -1132,6 +1188,8 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
                     onMouseLeave={hoverHandlers.onMouseLeave}
                     canvasScale={canvasScale}
                     isDragging={isDragging}
+                    isPendingDrag={isPendingDrag}
+                    finalDragOffset={finalDragOffset}
                     zIndex={noteZIndex}
                     isPanning={isPanning}
                   />

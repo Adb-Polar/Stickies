@@ -83,6 +83,10 @@ export interface DraggableNoteProps {
   zIndex: number;
   /** Whether the canvas is currently being panned */
   isPanning?: boolean;
+  /** Whether this note is pending drag (touched/held but drag hasn't activated yet) */
+  isPendingDrag?: boolean;
+  /** Final drag offset to use when drag ends (prevents flicker) */
+  finalDragOffset?: { x: number; y: number } | null;
   /** Callback when drag starts */
   onDragStart?: (noteId: string, startX: number, startY: number) => void;
   /** Callback during drag */
@@ -108,18 +112,27 @@ function DraggableNoteComponent({
   isDragging,
   zIndex,
   isPanning = false,
+  isPendingDrag = false,
+  finalDragOffset = null,
 }: DraggableNoteProps) {
   const colors = useMemo(() => getNoteColor(note.color), [note.color]);
   const headerColor = useMemo(() => darkenColor(colors.header, 20), [colors.header]);
   const authorName = useMemo(() => note.user.username ? `-${note.user.username}` : '', [note.user.username]);
   
-  // Scale effect: hover = 1.03, dragging = 1.1 with slight rotation for interactive feel
-  const dragScale = isDragging ? 1.1 : 1;
-  const hoverScale = isHovered && !isDragging ? 1.03 : 1;
-  const scale = dragScale * hoverScale;
-  const dragRotation = isDragging ? position.rotation + 2 : position.rotation; // Slight tilt when dragging
-  const scaleOffsetX = ((scale - 1) * NOTE_WIDTH) / 2;
-  const scaleOffsetY = ((scale - 1) * NOTE_HEIGHT) / 2;
+  // Scale effect: hover = 1.03, pending drag/dragging = 1.1 with slight rotation (same visual state)
+  // Memoized to prevent recalculation on every render
+  const { scale, dragRotation, scaleOffsetX, scaleOffsetY } = useMemo(() => {
+    const dragScale = (isDragging || isPendingDrag) ? 1.1 : 1;
+    const hoverScale = isHovered && !isDragging && !isPendingDrag ? 1.03 : 1;
+    const calculatedScale = dragScale * hoverScale;
+    const calculatedRotation = (isDragging || isPendingDrag) ? position.rotation + 2 : position.rotation;
+    return {
+      scale: calculatedScale,
+      dragRotation: calculatedRotation,
+      scaleOffsetX: ((calculatedScale - 1) * NOTE_WIDTH) / 2,
+      scaleOffsetY: ((calculatedScale - 1) * NOTE_HEIGHT) / 2,
+    };
+  }, [isDragging, isPendingDrag, isHovered, position.rotation]);
 
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: note.id,
@@ -137,30 +150,75 @@ function DraggableNoteComponent({
    * - This ensures the note moves the correct distance in world space
    * 
    * Only apply drag offset when actually dragging to prevent glitches
+   * Uses finalDragOffset if provided (prevents flicker when drag ends)
+   * Memoized to avoid recalculation on every render
    */
-  const dragOffset = transform && isDragging
-    ? {
+  const dragOffset = useMemo(() => {
+    // Use final drag offset if provided (prevents flicker on drag end)
+    if (finalDragOffset) {
+      return finalDragOffset;
+    }
+    // Otherwise use transform from @dnd-kit
+    if (transform && isDragging) {
+      return {
         x: transform.x / canvasScale,
         y: transform.y / canvasScale,
-      }
-    : { x: 0, y: 0 };
+      };
+    }
+    return { x: 0, y: 0 };
+  }, [transform, isDragging, canvasScale, finalDragOffset]);
   
-  const noteStyle: React.CSSProperties = {
-    position: 'absolute',
-    left: `${position.x - scaleOffsetX + dragOffset.x}px`,
-    top: `${position.y - scaleOffsetY + dragOffset.y}px`,
-    width: `${NOTE_WIDTH}px`,
-    height: `${NOTE_HEIGHT}px`,
-    transform: `rotate(${dragRotation}deg) scale(${scale})`,
+  /**
+   * Memoized style object to prevent recreation on every render
+   * Critical for performance during drag operations on mobile
+   * Uses CSS transforms for all positioning to leverage GPU acceleration
+   */
+  const noteStyle: React.CSSProperties = useMemo(() => {
+    // Base position with scale offset compensation
+    const baseX = position.x - scaleOffsetX;
+    const baseY = position.y - scaleOffsetY;
+    // Drag offset (already in world coordinates)
+    const translateX = baseX + dragOffset.x;
+    const translateY = baseY + dragOffset.y;
+    const isActive = isDragging || isPendingDrag;
+    
+    return {
+      position: 'absolute',
+      left: `${baseX}px`, // Base position (only updates when note position changes)
+      top: `${baseY}px`, // Base position (only updates when note position changes)
+      width: `${NOTE_WIDTH}px`,
+      height: `${NOTE_HEIGHT}px`,
+      // Use transform3d for GPU acceleration - combines translate, rotate, and scale
+      // This is more performant than using left/top for drag offset
+      transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0) rotate(${dragRotation}deg) scale(${scale})`,
+      opacity,
+      cursor: isDragging ? 'grabbing' : isPendingDrag ? 'grab' : 'default',
+      zIndex: isActive ? zIndex + 1000 : zIndex,
+      transition: isActive ? 'none' : 'transform 0.2s ease, opacity 0.2s ease',
+      // GPU acceleration - critical for smooth dragging on mobile
+      willChange: isActive ? 'transform' : 'auto',
+      // Prevent text selection when dragging or panning canvas
+      WebkitUserSelect: isDragging || isPanning ? 'none' : 'auto',
+      userSelect: isDragging || isPanning ? 'none' : 'auto',
+      // Force GPU layer for dragged notes
+      backfaceVisibility: 'hidden',
+      WebkitBackfaceVisibility: 'hidden',
+    };
+  }, [
+    position.x,
+    position.y,
+    scaleOffsetX,
+    scaleOffsetY,
+    dragOffset.x,
+    dragOffset.y,
+    dragRotation,
+    scale,
     opacity,
-    cursor: isDragging ? 'grabbing' : 'default',
-    zIndex: isDragging ? zIndex + 1000 : zIndex,
-    transition: isDragging ? 'none' : 'transform 0.2s ease, opacity 0.2s ease, left 0s, top 0s',
-    willChange: isDragging ? 'transform' : 'auto',
-    // Prevent text selection when dragging or panning canvas
-    WebkitUserSelect: isDragging || isPanning ? 'none' : 'auto',
-    userSelect: isDragging || isPanning ? 'none' : 'auto',
-  };
+    isDragging,
+    isPendingDrag,
+    zIndex,
+    isPanning,
+  ]);
 
   const handleContentClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -205,7 +263,7 @@ function DraggableNoteComponent({
             inset: 0,
             backgroundColor: colors.main,
             border: '1px solid rgba(0, 0, 0, 0.57)',
-            boxShadow: isDragging
+            boxShadow: (isDragging || isPendingDrag)
               ? '8px 16px 32px rgba(0, 0, 0, 0.4), 0 0 20px rgba(59, 130, 246, 0.5)'
               : isHovered || isSelected
               ? '4px 10px 16px rgba(59, 130, 246, 0.3)'
@@ -311,6 +369,9 @@ export const DraggableNote = memo(DraggableNoteComponent, (prevProps, nextProps)
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.isHovered === nextProps.isHovered &&
     prevProps.isDragging === nextProps.isDragging &&
+    prevProps.isPendingDrag === nextProps.isPendingDrag &&
+    prevProps.finalDragOffset?.x === nextProps.finalDragOffset?.x &&
+    prevProps.finalDragOffset?.y === nextProps.finalDragOffset?.y &&
     prevProps.zIndex === nextProps.zIndex &&
     prevProps.canvasScale === nextProps.canvasScale &&
     prevProps.isPanning === nextProps.isPanning &&
