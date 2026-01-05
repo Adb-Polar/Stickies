@@ -616,6 +616,8 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
   useEffect(() => {
     if (refreshKey && refreshKey > 0) {
       initializedNotesRef.current.clear();
+      // Reset centering flag to allow re-centering if needed (e.g., after major refresh)
+      hasCenteredRef.current = false;
     }
   }, [refreshKey]);
 
@@ -695,6 +697,49 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
               }, index * 50); // 50ms delay per note for cascading effect
             }
           });
+
+          // Center viewport on notes when they're first loaded (only once)
+          // Performance: Single-pass O(n) calculation, batched state updates, requestAnimationFrame for smooth timing
+          // Guarantee: Notes are distributed around (0, 0) in virtual canvas (-2000 to +2000 range),
+          // so centering on their average position ensures they're visible in viewport
+          if (!hasCenteredRef.current && prevPositions.size === 0 && newPositions.size > 0) {
+            hasCenteredRef.current = true;
+            
+            // Calculate center of all note positions in a single pass (O(n))
+            // Notes are randomly positioned around (0, 0), so average should be near origin
+            let sumX = 0;
+            let sumY = 0;
+            let count = 0;
+            for (const pos of newPositions.values()) {
+              sumX += pos.x;
+              sumY += pos.y;
+              count++;
+            }
+            
+            // Calculate center (average position)
+            // With viewport culling padding of 500px, notes will be visible even if slightly off-center
+            const centerX = count > 0 ? sumX / count : 0;
+            const centerY = count > 0 ? sumY / count : 0;
+            
+            // Center viewport on the calculated center of notes
+            // react-zoom-pan-pinch: to show world position (centerX, centerY) at screen center,
+            // we need positionX = -centerX * scale, positionY = -centerY * scale
+            const targetX = -centerX;
+            const targetY = -centerY;
+            
+            // Use requestAnimationFrame for smooth, performant timing
+            // Batches state updates and ensures transform ref is ready
+            requestAnimationFrame(() => {
+              if (transformRef.current) {
+                // Batch state updates together for better performance
+                flushSync(() => {
+                  setCanvasPosition({ x: targetX, y: targetY });
+                  setCanvasScale(1);
+                });
+                transformRef.current.setTransform(targetX, targetY, 1);
+              }
+            });
+          }
         }
 
         return newPositions;
