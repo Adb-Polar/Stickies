@@ -95,3 +95,27 @@ body {
 canvas {
     cursor: default !important;
 }
+
+/* react-zoom-pan-pinch TransformComponent styling */
+.canvas-background {
+    width: 100% !important;
+    height: 100% !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    overflow: visible !important;
+    touch-action: none !important;
+    pointer-events: auto !important;
+}
+
+.canvas-content {
+    width: 100% !important;
+    height: 100% !important;
+    position: relative;
+    overflow: visible !important;
+    transform-origin: 0 0;
+    touch-action: none;
+    pointer-events: auto !important;
+}

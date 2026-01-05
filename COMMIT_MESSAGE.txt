@@ -1,0 +1,15 @@
+refactor(dnd-canvas): extract logic into custom hooks
+
+Extract complex DndCanvas logic into 7 focused hooks:
+- use-drag-handler: drag-and-drop state management
+- use-canvas-transform: pan/zoom transform management
+- use-gesture-handler: gesture routing
+- use-note-positions: position initialization and animations
+- use-viewport-culling: viewport culling optimization
+- use-touch-handler: touch event handling
+- coordinate-utils: coordinate transformations
+
+Reduced component from 1,252 to 478 lines (62% reduction).
+Fixed infinite update loops and dependency issues.
+All hooks properly memoized and documented.
+
