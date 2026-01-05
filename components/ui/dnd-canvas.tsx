@@ -96,44 +96,74 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     };
   }, []);
 
+  // Fetch notes from API with error handling and retry logic
   const fetchNotes = useCallback(async () => {
+    if (!isMountedRef.current) {
+      return;
+    }
+
     try {
       const response = await fetch(`${API_URL}/api/notes`, {
         mode: 'cors',
         credentials: 'omit',
+        // Add timeout for slow networks (10 seconds)
+        signal: AbortSignal.timeout?.(10000) || undefined,
       });
 
       if (!response.ok) {
         if (response.status === 401) {
-          const retryResponse = await fetch(`${API_URL}/api/notes`, {
-            mode: 'cors',
-            credentials: 'omit',
-          });
-          if (retryResponse.ok) {
-            const retryData = await retryResponse.json();
-            setNotes(retryData.notes || []);
-            setIsLoading(false);
-            return;
+          // Retry once on 401 (might be stale token)
+          try {
+            const retryResponse = await fetch(`${API_URL}/api/notes`, {
+              mode: 'cors',
+              credentials: 'omit',
+              signal: AbortSignal.timeout?.(10000) || undefined,
+            });
+            if (retryResponse.ok) {
+              const retryData = await retryResponse.json();
+              if (isMountedRef.current) {
+                setNotes(Array.isArray(retryData.notes) ? retryData.notes : []);
+                setIsLoading(false);
+              }
+              return;
+            }
+          } catch (retryError) {
+            console.error('Retry fetch failed:', retryError);
           }
         }
-        const errorText = await response.text();
+        const errorText = await response.text().catch(() => 'Unknown error');
         console.error('Failed to fetch notes:', response.status, response.statusText, errorText);
-        setNotes([]);
-        setIsLoading(false);
+        if (isMountedRef.current) {
+          setNotes([]);
+          setIsLoading(false);
+        }
         return;
       }
 
       const data = await response.json();
-      setNotes(data.notes || []);
+      if (isMountedRef.current) {
+        // Ensure notes is always an array (defensive programming)
+        setNotes(Array.isArray(data.notes) ? data.notes : []);
+      }
     } catch (error) {
-      console.error('Error fetching notes:', error);
+      // Handle network errors, timeouts, and other exceptions
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
         console.error('Network error: Backend API may not be running at', API_URL);
         console.error('Please ensure the backend server is running on port 3001');
+      } else if (error instanceof Error && error.name === 'AbortError') {
+        console.error('Request timeout: Backend API took too long to respond');
+      } else {
+        console.error('Error fetching notes:', error);
       }
-      setNotes([]);
+      
+      if (isMountedRef.current) {
+        setNotes([]);
+        setIsLoading(false);
+      }
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
@@ -166,24 +196,41 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     refreshKey,
     onCentered: (centerX, centerY) => {
       // Center viewport on notes when they first load
+      // Use double RAF for slow machines to ensure transform is ready
       requestAnimationFrame(() => {
-        if (canvasTransform.transformRef.current) {
-          flushSync(() => {
-            canvasTransform.setTransform(centerX, centerY, 1);
-          });
-        }
+        requestAnimationFrame(() => {
+          if (isMountedRef.current && canvasTransform.transformRef.current) {
+            try {
+              flushSync(() => {
+                canvasTransform.setTransform(centerX, centerY, 1);
+              });
+            } catch (error) {
+              console.error('Error centering viewport:', error);
+            }
+          }
+        });
       });
     },
   });
 
   // Track container size changes and reset transform on significant resize
+  // Uses multiple strategies to ensure container size is always measured (cross-browser compatibility)
   useEffect(() => {
+    let checkSizeInterval: ReturnType<typeof setInterval> | null = null;
+    let checkSizeTimeout: ReturnType<typeof setTimeout> | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let rafId: number | null = null;
+
     function updateSize() {
-      if (containerRef.current) {
+      if (!containerRef.current || !isMountedRef.current) {
+        return;
+      }
+
+      try {
         const containerWidth = containerRef.current.clientWidth;
         const containerHeight = containerRef.current.clientHeight;
 
-        // Skip if container not yet measured
+        // Skip if container not yet measured (but don't block future updates)
         if (containerWidth === 0 && containerHeight === 0) {
           return;
         }
@@ -195,8 +242,19 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
             Math.abs(prevSize.height - containerHeight) > 100;
 
           if (sizeChanged && (prevSize.width > 0 || prevSize.height > 0)) {
-            requestAnimationFrame(() => {
-              canvasTransform.resetTransform();
+            // Use requestAnimationFrame for smooth transform reset
+            if (rafId !== null) {
+              cancelAnimationFrame(rafId);
+            }
+            rafId = requestAnimationFrame(() => {
+              if (isMountedRef.current && canvasTransform.transformRef.current) {
+                try {
+                  canvasTransform.resetTransform();
+                } catch (error) {
+                  console.error('Error resetting transform:', error);
+                }
+              }
+              rafId = null;
             });
           }
 
@@ -210,31 +268,137 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
             height: containerHeight,
           };
         });
+      } catch (error) {
+        console.error('Error updating container size:', error);
       }
     }
 
+    // Initial size measurement - try multiple times for slow machines
     updateSize();
+    
+    // Retry mechanism for slow machines or delayed DOM rendering
+    // Checks every 50ms (faster than 100ms for quicker initialization)
+    const startSizeCheck = () => {
+      if (checkSizeInterval) {
+        clearInterval(checkSizeInterval);
+      }
+      
+      checkSizeInterval = setInterval(() => {
+        if (!containerRef.current || !isMountedRef.current) {
+          return;
+        }
+        
+        const width = containerRef.current.clientWidth;
+        const height = containerRef.current.clientHeight;
+        
+        if (width > 0 && height > 0) {
+          updateSize();
+          // Clear interval once we have valid size
+          if (checkSizeInterval) {
+            clearInterval(checkSizeInterval);
+            checkSizeInterval = null;
+          }
+          if (checkSizeTimeout) {
+            clearTimeout(checkSizeTimeout);
+            checkSizeTimeout = null;
+          }
+        }
+      }, 50); // Check every 50ms for faster initialization
+      
+      // Clear interval after 10 seconds (longer timeout for slow machines)
+      checkSizeTimeout = setTimeout(() => {
+        if (checkSizeInterval) {
+          clearInterval(checkSizeInterval);
+          checkSizeInterval = null;
+        }
+      }, 10000);
+    };
 
-    const container = containerRef.current;
-    let resizeObserver: ResizeObserver | null = null;
-    if (container && typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(() => {
-        updateSize();
-      });
-      resizeObserver.observe(container);
+    if (containerRef.current) {
+      startSizeCheck();
+    } else {
+      // If container not ready, wait a bit and try again
+      const delayedCheck = setTimeout(() => {
+        if (containerRef.current) {
+          startSizeCheck();
+        }
+      }, 100);
+      
+      return () => {
+        clearTimeout(delayedCheck);
+      };
     }
 
-    window.addEventListener('resize', updateSize);
-    window.addEventListener('orientationchange', updateSize);
+    // Use ResizeObserver for efficient size tracking (modern browsers)
+    const container = containerRef.current;
+    if (container && typeof ResizeObserver !== 'undefined') {
+      try {
+        resizeObserver = new ResizeObserver(() => {
+          updateSize();
+        });
+        resizeObserver.observe(container);
+      } catch (error) {
+        console.error('Error creating ResizeObserver:', error);
+      }
+    }
+
+    // Fallback: window resize events (works on all browsers)
+    window.addEventListener('resize', updateSize, { passive: true });
+    window.addEventListener('orientationchange', updateSize, { passive: true });
 
     return () => {
       window.removeEventListener('resize', updateSize);
       window.removeEventListener('orientationchange', updateSize);
       if (resizeObserver) {
-        resizeObserver.disconnect();
+        try {
+          resizeObserver.disconnect();
+        } catch (error) {
+          console.error('Error disconnecting ResizeObserver:', error);
+        }
+      }
+      if (checkSizeInterval) {
+        clearInterval(checkSizeInterval);
+      }
+      if (checkSizeTimeout) {
+        clearTimeout(checkSizeTimeout);
+      }
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
       }
     };
   }, [canvasTransform]);
+  
+  // Fallback: Ensure container size is set even if initial measurement fails
+  // This handles edge cases on slow machines or when DOM isn't ready
+  useEffect(() => {
+    if (containerSize.width === 0 && containerSize.height === 0 && containerRef.current && isMountedRef.current) {
+      // Try multiple times with increasing delays for maximum compatibility
+      const timeouts: ReturnType<typeof setTimeout>[] = [];
+      
+      [100, 300, 500, 1000].forEach((delay) => {
+        const timeoutId = setTimeout(() => {
+          if (containerRef.current && isMountedRef.current) {
+            try {
+              const width = containerRef.current.clientWidth;
+              const height = containerRef.current.clientHeight;
+              if (width > 0 || height > 0) {
+                setContainerSize({ width, height });
+                // Clear remaining timeouts once we have a valid size
+                timeouts.forEach((id) => clearTimeout(id));
+              }
+            } catch (error) {
+              console.error('Error in container size fallback:', error);
+            }
+          }
+        }, delay);
+        timeouts.push(timeoutId);
+      });
+      
+      return () => {
+        timeouts.forEach((id) => clearTimeout(id));
+      };
+    }
+  }, [containerSize.width, containerSize.height]);
 
   const handleNoteView = useCallback(
     (note: Note) => {
@@ -352,6 +516,8 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     [dragHandler.activeId],
   );
 
+  // Update background position and size based on transform
+  // Throttled with requestAnimationFrame for performance
   useEffect(() => {
     if (backgroundUpdateRef.current !== null) {
       cancelAnimationFrame(backgroundUpdateRef.current);
@@ -362,9 +528,15 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
         backgroundUpdateRef.current = null;
         return;
       }
+      
+      // Safely update background styles with error handling
       if (backgroundRef.current) {
-        backgroundRef.current.style.backgroundPosition = `${canvasTransform.canvasPosition.x}px ${canvasTransform.canvasPosition.y}px`;
-        backgroundRef.current.style.backgroundSize = `${100 * canvasTransform.canvasScale}%`;
+        try {
+          backgroundRef.current.style.backgroundPosition = `${canvasTransform.canvasPosition.x}px ${canvasTransform.canvasPosition.y}px`;
+          backgroundRef.current.style.backgroundSize = `${100 * canvasTransform.canvasScale}%`;
+        } catch (error) {
+          console.error('Error updating background styles:', error);
+        }
       }
       backgroundUpdateRef.current = null;
     });
@@ -372,6 +544,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
     return () => {
       if (backgroundUpdateRef.current !== null) {
         cancelAnimationFrame(backgroundUpdateRef.current);
+        backgroundUpdateRef.current = null;
       }
     };
   }, [canvasTransform.canvasPosition.x, canvasTransform.canvasPosition.y, canvasTransform.canvasScale]);
@@ -397,6 +570,7 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
         WebkitTouchCallout: 'none',
       }}
     >
+      {/* Background layer - explicitly set to z-index 0 to ensure it's below notes */}
       <div
         ref={backgroundRef}
         className="absolute inset-0 pointer-events-none"
@@ -407,12 +581,14 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
           backgroundPosition: `${canvasTransform.canvasPosition.x}px ${canvasTransform.canvasPosition.y}px`,
           backgroundColor: '#fdfef0',
           backgroundBlendMode: 'multiply',
-          zIndex: 0,
+          zIndex: 0, // Background always below notes (notes start at z-index 1)
           willChange: 'background-position, background-size',
           backfaceVisibility: 'hidden',
         }}
       />
-      <div ref={backgroundRefForGesture} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      {/* Notes container - positioned above background, notes have z-index >= 1 */}
+      {/* touch-action: none required for use-gesture drag gestures to work correctly */}
+      <div ref={backgroundRefForGesture} style={{ width: '100%', height: '100%', position: 'relative', zIndex: 1, touchAction: 'none' }}>
         <TransformWrapper
           initialScale={1}
           minScale={0.5}
@@ -430,7 +606,20 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
             canvasTransform.handleTransformChange(ref);
           }}
           onInit={(ref) => {
-            canvasTransform.transformRef.current = ref;
+            // Initialize transform ref when component mounts - critical for pan/zoom to work
+            // Use requestAnimationFrame to ensure DOM is ready (handles slow machines)
+            requestAnimationFrame(() => {
+              if (isMountedRef.current && ref) {
+                try {
+                  canvasTransform.transformRef.current = ref;
+                  // Trigger initial transform update to sync state
+                  // This ensures background position updates correctly
+                  canvasTransform.handleTransformChange(ref);
+                } catch (error) {
+                  console.error('Error initializing transform:', error);
+                }
+              }
+            });
           }}
         >
           <DndContext
@@ -451,36 +640,55 @@ export function DndCanvas({ onNoteSelect, onNoteView, selectedNoteId, refreshKey
                   pointerEvents: 'none',
                 }}
               >
-                {visibleNotes.map((note) => {
-                  const position = notePositionsHook.notePositions.get(note.id) || { x: 0, y: 0, rotation: 0 };
-                  const opacity = notePositionsHook.noteOpacities.get(note.id) ?? 1;
-                  const isSelected = selectedNoteId === note.id;
-                  const isHovered = hoveredNoteId === note.id;
-                  const isDragging = dragHandler.activeId === note.id;
-                  const isPendingDrag = touchHandler.pendingDragNoteId === note.id && !isDragging;
-                  const noteZIndex = noteZIndices.get(note.id) || (isSelected ? 10 : isHovered ? 5 : 1);
-                  const hoverHandlers = createHoverHandlers(note.id);
+                {/* Render visible notes - only notes in viewport are rendered for performance */}
+                {visibleNotes.length > 0 ? (
+                  visibleNotes.map((note) => {
+                    const position = notePositionsHook.notePositions.get(note.id) || { x: 0, y: 0, rotation: 0 };
+                    const opacity = notePositionsHook.noteOpacities.get(note.id) ?? 1;
+                    const isSelected = selectedNoteId === note.id;
+                    const isHovered = hoveredNoteId === note.id;
+                    const isDragging = dragHandler.activeId === note.id;
+                    const isPendingDrag = touchHandler.pendingDragNoteId === note.id && !isDragging;
+                    // Notes z-index: 1 (normal), 5 (hovered), 10 (selected), 1001+ (dragging)
+                    // Always >= 1 to ensure notes render above background (z-index 0)
+                    const noteZIndex = noteZIndices.get(note.id) || (isSelected ? 10 : isHovered ? 5 : 1);
+                    const hoverHandlers = createHoverHandlers(note.id);
 
-                  return (
-                    <DraggableNote
-                      key={note.id}
-                      note={note}
-                      position={position}
-                      opacity={opacity}
-                      isSelected={isSelected}
-                      isHovered={isHovered}
-                      onNoteClick={handleNoteClick}
-                      onNoteView={handleNoteView}
-                      onMouseEnter={hoverHandlers.onMouseEnter}
-                      onMouseLeave={hoverHandlers.onMouseLeave}
-                      canvasScale={canvasTransform.canvasScale}
-                      isDragging={isDragging}
-                      isPendingDrag={isPendingDrag}
-                      zIndex={noteZIndex}
-                      isPanning={gestureHandler.isPanning}
-                    />
-                  );
-                })}
+                    return (
+                      <DraggableNote
+                        key={note.id}
+                        note={note}
+                        position={position}
+                        opacity={opacity}
+                        isSelected={isSelected}
+                        isHovered={isHovered}
+                        onNoteClick={handleNoteClick}
+                        onNoteView={handleNoteView}
+                        onMouseEnter={hoverHandlers.onMouseEnter}
+                        onMouseLeave={hoverHandlers.onMouseLeave}
+                        canvasScale={canvasTransform.canvasScale}
+                        isDragging={isDragging}
+                        isPendingDrag={isPendingDrag}
+                        zIndex={noteZIndex}
+                        isPanning={gestureHandler.isPanning}
+                      />
+                    );
+                  })
+                ) : notes.length > 0 && containerSize.width === 0 ? (
+                  // Show message if notes exist but container size isn't initialized yet
+                  <div style={{ 
+                    position: 'absolute', 
+                    top: '50%', 
+                    left: '50%', 
+                    transform: 'translate(-50%, -50%)',
+                    fontFamily: 'Caveat, cursive',
+                    fontSize: '18px',
+                    color: '#171c28',
+                    pointerEvents: 'none'
+                  }}>
+                    Initializing canvas...
+                  </div>
+                ) : null}
               </div>
             </TransformComponent>
           </DndContext>

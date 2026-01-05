@@ -176,14 +176,24 @@ export function useCanvasTransform(options: UseCanvasTransformOptions): UseCanva
   );
 
   const setTransform = useCallback((x: number, y: number, scale: number) => {
-    if (transformRef.current) {
-      transformRef.current.setTransform(x, y, scale);
+    // Defensive check: ensure ref exists and is valid
+    if (transformRef.current && isMountedRef.current) {
+      try {
+        transformRef.current.setTransform(x, y, scale);
+      } catch (error) {
+        console.error('Error setting transform:', error);
+      }
     }
   }, []);
 
   const resetTransform = useCallback(() => {
-    if (transformRef.current) {
-      transformRef.current.resetTransform();
+    // Defensive check: ensure ref exists and is valid
+    if (transformRef.current && isMountedRef.current) {
+      try {
+        transformRef.current.resetTransform();
+      } catch (error) {
+        console.error('Error resetting transform:', error);
+      }
     }
   }, []);
 

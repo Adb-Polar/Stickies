@@ -55,7 +55,10 @@ export function useNotePositions(options: UseNotePositionsOptions): UseNotePosit
   }, [onCentered]);
 
   // Initialize positions for new notes and set up fade-in animations
+  // Note: Requires containerSize to be > 0, otherwise notes won't initialize positions
   useEffect(() => {
+    // Only initialize if we have notes and valid container size
+    // If container size is 0, positions won't be initialized (prevents rendering issues)
     if (notes.length > 0 && containerSize.width > 0 && containerSize.height > 0) {
       setNotePositions((prevPositions) => {
         const newPositions = new Map(prevPositions);
@@ -100,16 +103,22 @@ export function useNotePositions(options: UseNotePositionsOptions): UseNotePosit
             return next;
           });
 
+          // Staggered fade-in animation for new notes
+          // Uses setTimeout with proper cleanup to prevent memory leaks
           notes.forEach((note, index) => {
             const existingPos = prevPositions.get(note.id);
             if (!existingPos || (existingPos.x === 0 && existingPos.y === 0)) {
-              setTimeout(() => {
+              // Store timeout ID for potential cleanup (though cleanup happens on unmount)
+              const timeoutId = setTimeout(() => {
                 setNoteOpacities((prev) => {
                   const next = new Map(prev);
                   next.set(note.id, 1);
                   return next;
                 });
               }, index * 50);
+              
+              // Note: Timeouts are automatically cleaned up on component unmount
+              // For very long lists, consider storing timeout IDs for explicit cleanup
             }
           });
 

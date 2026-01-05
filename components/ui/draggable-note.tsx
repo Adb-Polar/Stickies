@@ -193,6 +193,8 @@ function DraggableNoteComponent({
       transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0) rotate(${dragRotation}deg) scale(${scale})`,
       opacity,
       cursor: isDragging ? 'grabbing' : isPendingDrag ? 'grab' : 'default',
+      // z-index: base (1-10) or base + 1000 when dragging to ensure dragged notes are on top
+      // Base z-index is always >= 1, so notes are always above background (z-index 0)
       zIndex: isActive ? zIndex + 1000 : zIndex,
       transition: isActive ? 'none' : 'transform 0.2s ease, opacity 0.2s ease',
       // GPU acceleration - critical for smooth dragging on mobile

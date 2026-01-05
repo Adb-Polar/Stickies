@@ -1,15 +1,12 @@
-refactor(dnd-canvas): extract logic into custom hooks
+refactor: optimize canvas for cross-machine stability and performance
 
-Extract complex DndCanvas logic into 7 focused hooks:
-- use-drag-handler: drag-and-drop state management
-- use-canvas-transform: pan/zoom transform management
-- use-gesture-handler: gesture routing
-- use-note-positions: position initialization and animations
-- use-viewport-culling: viewport culling optimization
-- use-touch-handler: touch event handling
-- coordinate-utils: coordinate transformations
+- Enhanced container size initialization with multiple retry strategies
+- Improved transform initialization with double RAF for slow machines
+- Enhanced API fetching with timeout handling and error recovery
+- Added comprehensive error handling with graceful fallbacks
+- Performance optimizations: RAF throttling, passive listeners, cleanup
+- Cross-browser compatibility: ResizeObserver fallback, defensive checks
+- Fixed touch-action warning for use-gesture drag target
 
-Reduced component from 1,252 to 478 lines (62% reduction).
-Fixed infinite update loops and dependency issues.
-All hooks properly memoized and documented.
+Fixes canvas initialization issues on slower machines and different browsers.
 
