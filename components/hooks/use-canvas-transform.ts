@@ -55,6 +55,7 @@ export function useCanvasTransform(options: UseCanvasTransformOptions): UseCanva
   const transformUpdateRef = useRef<number | null>(null);
   const initialTransformRef = useRef<{ x: number; y: number; scale: number } | null>(null);
   const isMountedRef = useRef(true);
+  const lastTransformRef = useRef<{ x: number; y: number; scale: number }>({ x: 0, y: 0, scale: 1 });
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -79,27 +80,32 @@ export function useCanvasTransform(options: UseCanvasTransformOptions): UseCanva
           return;
         }
         const { state } = ref;
+        const newX = state.positionX;
+        const newY = state.positionY;
+        const newScale = state.scale;
         
-        // Only update scale if changed significantly (>0.001 threshold)
-        setCanvasScale((prevScale) => {
-          if (Math.abs(prevScale - state.scale) < 0.001) {
-            return prevScale; // No change, return previous to prevent re-render
+        // Check against last known values to prevent unnecessary updates
+        const lastTransform = lastTransformRef.current;
+        const scaleChanged = Math.abs(lastTransform.scale - newScale) >= 0.001;
+        const positionChanged =
+          Math.abs(lastTransform.x - newX) >= 0.1 || Math.abs(lastTransform.y - newY) >= 0.1;
+        
+        // Only update state if values actually changed
+        if (scaleChanged || positionChanged) {
+          if (scaleChanged) {
+            setCanvasScale(newScale);
           }
-          return state.scale;
-        });
-        
-        // Only update position if changed significantly (>0.1px threshold)
-        setCanvasPosition((prevPos) => {
-          if (
-            Math.abs(prevPos.x - state.positionX) < 0.1 &&
-            Math.abs(prevPos.y - state.positionY) < 0.1
-          ) {
-            return prevPos; // No change, return previous to prevent re-render
+          if (positionChanged) {
+            setCanvasPosition({ x: newX, y: newY });
           }
-          return { x: state.positionX, y: state.positionY };
-        });
+          
+          // Update last known values
+          lastTransformRef.current = { x: newX, y: newY, scale: newScale };
+          
+          // Call callback only if something changed
+          onTransformChange?.({ x: newX, y: newY }, newScale);
+        }
         
-        onTransformChange?.({ x: state.positionX, y: state.positionY }, state.scale);
         transformUpdateRef.current = null;
       });
     },
@@ -180,6 +186,8 @@ export function useCanvasTransform(options: UseCanvasTransformOptions): UseCanva
     if (transformRef.current && isMountedRef.current) {
       try {
         transformRef.current.setTransform(x, y, scale);
+        // Update last known values to prevent unnecessary state updates
+        lastTransformRef.current = { x, y, scale };
       } catch (error) {
         console.error('Error setting transform:', error);
       }
@@ -191,6 +199,8 @@ export function useCanvasTransform(options: UseCanvasTransformOptions): UseCanva
     if (transformRef.current && isMountedRef.current) {
       try {
         transformRef.current.resetTransform();
+        // Reset last known values to initial state
+        lastTransformRef.current = { x: 0, y: 0, scale: 1 };
       } catch (error) {
         console.error('Error resetting transform:', error);
       }
